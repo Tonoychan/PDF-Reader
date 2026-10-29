@@ -32,6 +32,8 @@ if not exist "%ROOT%.sdk\dotnet.exe" (
 set "DOTNET=%ROOT%.sdk\dotnet.exe"
 set "DOTNET_MULTILEVEL_LOOKUP=0"
 :build
+rem Keep downloaded packages inside this folder.
+set "NUGET_PACKAGES=%ROOT%.packages"
 set "DOTNET_CLI_TELEMETRY_OPTOUT=1"
 set "DOTNET_NOLOGO=1"
 "%DOTNET%" --list-sdks

@@ -36,6 +36,14 @@
                     </StackPanel>
                 </Button>
 
+                <ToggleButton x:Name="SidebarButton" DockPanel.Dock="Left" Style="{StaticResource ToolToggle}" Margin="8,0,0,0"
+                              Click="OnSidebarButtonClick" ToolTip="Contents and search (Ctrl+F to search)">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE8FD;" FontSize="13" Margin="0,0,7,0" VerticalAlignment="Center" />
+                        <TextBlock Text="Contents" VerticalAlignment="Center" />
+                    </StackPanel>
+                </ToggleButton>
+
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
                     <!-- Page | Text -->
                     <Border Background="{StaticResource PaperBrush}" CornerRadius="10" Padding="3" Margin="0,0,10,0">
@@ -106,133 +114,215 @@
             </DockPanel>
         </Border>
 
-        <!-- ===== Page view (the real PDF pages) ===== -->
-        <r:PagesView x:Name="PagesViewControl" Grid.Row="1" Visibility="Collapsed" Background="{StaticResource PageBackdropBrush}" />
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition x:Name="SidebarColumn" Width="0" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
 
-        <!-- ===== Text view (clean text, headings, pictures) ===== -->
-        <ListBox x:Name="ReaderList" Grid.Row="1" Visibility="Collapsed"
-                 Background="Transparent" BorderThickness="0" Padding="0"
-                 FontFamily="{StaticResource ReadingFont}" FontSize="19" Foreground="{StaticResource InkBrush}"
-                 Focusable="False"
-                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                 ScrollViewer.CanContentScroll="True"
-                 VirtualizingPanel.IsVirtualizing="True"
-                 VirtualizingPanel.VirtualizationMode="Recycling"
-                 VirtualizingPanel.ScrollUnit="Pixel">
-            <ListBox.ItemContainerStyle>
-                <Style TargetType="ListBoxItem">
-                    <Setter Property="Focusable" Value="False" />
-                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                    <Setter Property="Template">
-                        <Setter.Value>
-                            <ControlTemplate TargetType="ListBoxItem">
-                                <ContentPresenter />
-                            </ControlTemplate>
-                        </Setter.Value>
-                    </Setter>
-                </Style>
-            </ListBox.ItemContainerStyle>
-            <ListBox.Resources>
-                <DataTemplate DataType="{x:Type r:ParagraphItem}">
-                    <Border x:Name="Bd" MaxWidth="840" Margin="24,0" Padding="20,8" CornerRadius="10" Background="Transparent">
-                        <r:WordTextBlock x:Name="Text" Item="{Binding}" />
+            <!-- ===== Sidebar: Contents | Search ===== -->
+            <Border x:Name="Sidebar" Grid.Column="0" Visibility="Collapsed" Background="{StaticResource ChromeBrush}"
+                    BorderBrush="{StaticResource ChromeBorderBrush}" BorderThickness="0,0,1,0">
+                <DockPanel>
+                    <Border DockPanel.Dock="Top" Padding="10,10,10,6">
+                        <Border Background="{StaticResource PaperBrush}" CornerRadius="10" Padding="3" HorizontalAlignment="Left">
+                            <StackPanel Orientation="Horizontal">
+                                <ToggleButton x:Name="ContentsTab" Style="{StaticResource ToolToggle}" Padding="14,5" Content="Contents" Click="OnContentsTabClick" />
+                                <ToggleButton x:Name="SearchTab" Style="{StaticResource ToolToggle}" Padding="14,5" Content="Search" Click="OnSearchTabClick" />
+                            </StackPanel>
+                        </Border>
                     </Border>
-                    <DataTemplate.Triggers>
-                        <DataTrigger Binding="{Binding Kind}" Value="Heading">
-                            <Setter TargetName="Text" Property="FontFamily" Value="{StaticResource UiFont}" />
-                            <Setter TargetName="Text" Property="FontWeight" Value="SemiBold" />
-                            <Setter TargetName="Text" Property="FontSize"
-                                    Value="{Binding FontSize, RelativeSource={RelativeSource AncestorType=ListBox}, Converter={StaticResource Multiply}, ConverterParameter=1.3}" />
-                            <Setter TargetName="Bd" Property="Margin" Value="24,18,24,2" />
-                        </DataTrigger>
-                        <DataTrigger Binding="{Binding Kind}" Value="Footnote">
-                            <Setter TargetName="Text" Property="FontSize"
-                                    Value="{Binding FontSize, RelativeSource={RelativeSource AncestorType=ListBox}, Converter={StaticResource Multiply}, ConverterParameter=0.78}" />
-                            <Setter TargetName="Text" Property="Foreground" Value="{StaticResource MutedInkBrush}" />
-                        </DataTrigger>
-                        <DataTrigger Binding="{Binding Kind}" Value="Caption">
-                            <Setter TargetName="Text" Property="FontSize"
-                                    Value="{Binding FontSize, RelativeSource={RelativeSource AncestorType=ListBox}, Converter={StaticResource Multiply}, ConverterParameter=0.8}" />
-                            <Setter TargetName="Text" Property="FontStyle" Value="Italic" />
-                            <Setter TargetName="Text" Property="Foreground" Value="{StaticResource MutedInkBrush}" />
-                        </DataTrigger>
-                        <DataTrigger Binding="{Binding Kind}" Value="TableOfContents">
-                            <Setter TargetName="Text" Property="FontSize"
-                                    Value="{Binding FontSize, RelativeSource={RelativeSource AncestorType=ListBox}, Converter={StaticResource Multiply}, ConverterParameter=0.85}" />
-                            <Setter TargetName="Text" Property="Foreground" Value="{StaticResource MutedInkBrush}" />
-                            <Setter TargetName="Bd" Property="Padding" Value="20,2" />
-                        </DataTrigger>
-                        <DataTrigger Binding="{Binding IsSkipped}" Value="True">
-                            <Setter TargetName="Bd" Property="Opacity" Value="0.8" />
-                        </DataTrigger>
-                        <DataTrigger Binding="{Binding IsActive}" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource ActiveParagraphBrush}" />
-                        </DataTrigger>
-                    </DataTemplate.Triggers>
-                </DataTemplate>
 
-                <DataTemplate DataType="{x:Type r:ImageItem}">
-                    <Border MaxWidth="840" Margin="24,10" Padding="20,0">
-                        <Viewbox StretchDirection="DownOnly" Stretch="Uniform" HorizontalAlignment="Center">
-                            <Border Width="{Binding DisplayWidth}" Height="{Binding DisplayHeight}" Background="White"
-                                    BorderBrush="{StaticResource ChromeBorderBrush}" BorderThickness="1">
-                                <Image Source="{Binding Bitmap}" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality" />
-                            </Border>
-                        </Viewbox>
-                    </Border>
-                </DataTemplate>
+                    <Grid>
+                        <!-- Contents -->
+                        <Grid x:Name="ContentsPanel">
+                            <ListBox x:Name="ContentsList" BorderThickness="0" Background="Transparent" Padding="0,2,0,10"
+                                     ItemContainerStyle="{StaticResource SidebarListItem}"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                     VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                                     PreviewMouseLeftButtonUp="OnContentsClick">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type r:OutlineItem}">
+                                        <DockPanel Margin="{Binding Indent}">
+                                            <TextBlock DockPanel.Dock="Right" Text="{Binding PageLabel}" Margin="10,0,0,0" FontSize="12"
+                                                       Foreground="{StaticResource MutedInkBrush}" VerticalAlignment="Top" />
+                                            <TextBlock x:Name="Title" Text="{Binding Title}" TextWrapping="Wrap" FontSize="13.5"
+                                                       Foreground="{StaticResource InkBrush}" />
+                                        </DockPanel>
+                                        <DataTemplate.Triggers>
+                                            <DataTrigger Binding="{Binding IsTopLevel}" Value="True">
+                                                <Setter TargetName="Title" Property="FontWeight" Value="SemiBold" />
+                                            </DataTrigger>
+                                        </DataTemplate.Triggers>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                            <TextBlock x:Name="ContentsEmpty" Visibility="Collapsed" Margin="20" TextWrapping="Wrap"
+                                       Style="{StaticResource ChromeText}" VerticalAlignment="Top"
+                                       Text="This book has no contents list or headings to show." />
+                        </Grid>
 
-                <DataTemplate DataType="{x:Type r:PageHeaderItem}">
-                    <Grid MaxWidth="840" Margin="44,26,44,10">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-                        <Rectangle Height="1" Fill="{StaticResource ChromeBorderBrush}" VerticalAlignment="Center" />
-                        <TextBlock Grid.Column="1" Text="{Binding Label}" Margin="14,0" FontFamily="{StaticResource UiFont}"
-                                   FontSize="12" Foreground="{StaticResource MutedInkBrush}" />
-                        <Rectangle Grid.Column="2" Height="1" Fill="{StaticResource ChromeBorderBrush}" VerticalAlignment="Center" />
+                        <!-- Search -->
+                        <DockPanel x:Name="SearchPanel" Visibility="Collapsed">
+                            <Grid DockPanel.Dock="Top" Margin="12,4,12,6">
+                                <TextBox x:Name="SearchBox" Style="{StaticResource FieldBox}" TextChanged="OnSearchTextChanged"
+                                         PreviewKeyDown="OnSearchKeyDown" />
+                                <TextBlock x:Name="SearchHint" Text="Search this book…" IsHitTestVisible="False" Margin="11,0,0,0"
+                                           VerticalAlignment="Center" Style="{StaticResource ChromeText}" />
+                            </Grid>
+                            <TextBlock x:Name="SearchStatus" DockPanel.Dock="Top" Margin="16,0,16,6" Style="{StaticResource ChromeText}" FontSize="12" />
+                            <ListBox x:Name="SearchResults" BorderThickness="0" Background="Transparent" Padding="0,0,0,10"
+                                     ItemContainerStyle="{StaticResource SidebarListItem}"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                     VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                                     PreviewMouseLeftButtonUp="OnSearchResultClick">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type r:SearchItem}">
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding PageLabel}" FontSize="11.5" Foreground="{StaticResource MutedInkBrush}" Margin="0,0,0,2" />
+                                            <TextBlock TextWrapping="Wrap" FontSize="13" Foreground="{StaticResource InkBrush}">
+                                                <Run Text="{Binding Before, Mode=OneWay}" /><Run Text="{Binding Match, Mode=OneWay}" FontWeight="Bold"
+                                                     Background="{StaticResource ReadingWordBrush}" /><Run Text="{Binding After, Mode=OneWay}" />
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </DockPanel>
                     </Grid>
-                </DataTemplate>
-            </ListBox.Resources>
-        </ListBox>
-
-        <!-- Empty state -->
-        <StackPanel x:Name="EmptyState" Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Center">
-            <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE736;" FontSize="54" HorizontalAlignment="Center"
-                       Foreground="{StaticResource MutedInkBrush}" Margin="0,0,0,18" />
-            <TextBlock Text="Open a PDF to start reading" FontSize="22" FontWeight="SemiBold" HorizontalAlignment="Center"
-                       Foreground="{StaticResource InkBrush}" />
-            <TextBlock Text="or drag a PDF file onto this window" FontSize="14" HorizontalAlignment="Center"
-                       Foreground="{StaticResource MutedInkBrush}" Margin="0,6,0,22" />
-            <Button Style="{StaticResource AccentButton}" HorizontalAlignment="Center" Padding="20,10" Click="OnOpenClick">
-                <TextBlock Text="Browse…" FontSize="14" />
-            </Button>
-        </StackPanel>
-
-        <!-- Loading -->
-        <Grid x:Name="LoadingPanel" Grid.Row="1" Visibility="Collapsed" Background="#B3FBF8F1">
-            <Border Background="{StaticResource ChromeBrush}" BorderBrush="{StaticResource ChromeBorderBrush}" BorderThickness="1"
-                    CornerRadius="12" Padding="28,22" HorizontalAlignment="Center" VerticalAlignment="Center">
-                <StackPanel Width="300">
-                    <TextBlock x:Name="LoadingText" Text="Reading pages…" FontSize="15" Foreground="{StaticResource InkBrush}" />
-                    <ProgressBar x:Name="LoadingProgress" Height="6" Margin="0,14,0,16" Minimum="0" Maximum="1"
-                                 Foreground="{StaticResource AccentBrush}" Background="{StaticResource HoverBrush}" BorderThickness="0" />
-                    <Button Style="{StaticResource ToolButton}" HorizontalAlignment="Right" Content="Cancel" Click="OnCancelLoadClick" />
-                </StackPanel>
+                </DockPanel>
             </Border>
-        </Grid>
 
-        <!-- Shown when you scroll away while it reads -->
-        <Button x:Name="BackToReadingButton" Grid.Row="1" Visibility="Collapsed" Style="{StaticResource AccentButton}"
-                HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,34,22" Padding="16,9"
-                Click="OnBackToReadingClick">
-            <StackPanel Orientation="Horizontal">
-                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE74B;" FontSize="12" Margin="0,0,8,0" VerticalAlignment="Center" />
-                <TextBlock Text="Back to reading position" VerticalAlignment="Center" />
+            <Grid Grid.Column="1">
+            <!-- ===== Page view (the real PDF pages) ===== -->
+            <r:PagesView x:Name="PagesViewControl" Visibility="Collapsed" Background="{StaticResource PageBackdropBrush}" />
+
+            <!-- ===== Text view (clean text, headings, pictures) ===== -->
+            <ListBox x:Name="ReaderList" Visibility="Collapsed"
+                     Background="Transparent" BorderThickness="0" Padding="0"
+                     FontFamily="{StaticResource ReadingFont}" FontSize="19" Foreground="{StaticResource InkBrush}"
+                     Focusable="False"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                     ScrollViewer.CanContentScroll="True"
+                     VirtualizingPanel.IsVirtualizing="True"
+                     VirtualizingPanel.VirtualizationMode="Recycling"
+                     VirtualizingPanel.ScrollUnit="Pixel">
+                <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem">
+                        <Setter Property="Focusable" Value="False" />
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="ListBoxItem">
+                                    <ContentPresenter />
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </ListBox.ItemContainerStyle>
+                <ListBox.Resources>
+                    <DataTemplate DataType="{x:Type r:ParagraphItem}">
+                        <Border x:Name="Bd" MaxWidth="840" Margin="24,0" Padding="20,8" CornerRadius="10" Background="Transparent">
+                            <r:WordTextBlock x:Name="Text" Item="{Binding}" />
+                        </Border>
+                        <DataTemplate.Triggers>
+                            <DataTrigger Binding="{Binding Kind}" Value="Heading">
+                                <Setter TargetName="Text" Property="FontFamily" Value="{StaticResource UiFont}" />
+                                <Setter TargetName="Text" Property="FontWeight" Value="SemiBold" />
+                                <Setter TargetName="Text" Property="FontSize"
+                                        Value="{Binding FontSize, RelativeSource={RelativeSource AncestorType=ListBox}, Converter={StaticResource Multiply}, ConverterParameter=1.3}" />
+                                <Setter TargetName="Bd" Property="Margin" Value="24,18,24,2" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding Kind}" Value="Footnote">
+                                <Setter TargetName="Text" Property="FontSize"
+                                        Value="{Binding FontSize, RelativeSource={RelativeSource AncestorType=ListBox}, Converter={StaticResource Multiply}, ConverterParameter=0.78}" />
+                                <Setter TargetName="Text" Property="Foreground" Value="{StaticResource MutedInkBrush}" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding Kind}" Value="Caption">
+                                <Setter TargetName="Text" Property="FontSize"
+                                        Value="{Binding FontSize, RelativeSource={RelativeSource AncestorType=ListBox}, Converter={StaticResource Multiply}, ConverterParameter=0.8}" />
+                                <Setter TargetName="Text" Property="FontStyle" Value="Italic" />
+                                <Setter TargetName="Text" Property="Foreground" Value="{StaticResource MutedInkBrush}" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding Kind}" Value="TableOfContents">
+                                <Setter TargetName="Text" Property="FontSize"
+                                        Value="{Binding FontSize, RelativeSource={RelativeSource AncestorType=ListBox}, Converter={StaticResource Multiply}, ConverterParameter=0.85}" />
+                                <Setter TargetName="Text" Property="Foreground" Value="{StaticResource MutedInkBrush}" />
+                                <Setter TargetName="Bd" Property="Padding" Value="20,2" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding IsSkipped}" Value="True">
+                                <Setter TargetName="Bd" Property="Opacity" Value="0.8" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding IsActive}" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource ActiveParagraphBrush}" />
+                            </DataTrigger>
+                        </DataTemplate.Triggers>
+                    </DataTemplate>
+
+                    <DataTemplate DataType="{x:Type r:ImageItem}">
+                        <Border MaxWidth="840" Margin="24,10" Padding="20,0">
+                            <Viewbox StretchDirection="DownOnly" Stretch="Uniform" HorizontalAlignment="Center">
+                                <Border Width="{Binding DisplayWidth}" Height="{Binding DisplayHeight}" Background="White"
+                                        BorderBrush="{StaticResource ChromeBorderBrush}" BorderThickness="1">
+                                    <Image Source="{Binding Bitmap}" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality" />
+                                </Border>
+                            </Viewbox>
+                        </Border>
+                    </DataTemplate>
+
+                    <DataTemplate DataType="{x:Type r:PageHeaderItem}">
+                        <Grid MaxWidth="840" Margin="44,26,44,10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Rectangle Height="1" Fill="{StaticResource ChromeBorderBrush}" VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="1" Text="{Binding Label}" Margin="14,0" FontFamily="{StaticResource UiFont}"
+                                       FontSize="12" Foreground="{StaticResource MutedInkBrush}" />
+                            <Rectangle Grid.Column="2" Height="1" Fill="{StaticResource ChromeBorderBrush}" VerticalAlignment="Center" />
+                        </Grid>
+                    </DataTemplate>
+                </ListBox.Resources>
+            </ListBox>
+
+            <!-- Empty state -->
+            <StackPanel x:Name="EmptyState" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE736;" FontSize="54" HorizontalAlignment="Center"
+                           Foreground="{StaticResource MutedInkBrush}" Margin="0,0,0,18" />
+                <TextBlock Text="Open a PDF to start reading" FontSize="22" FontWeight="SemiBold" HorizontalAlignment="Center"
+                           Foreground="{StaticResource InkBrush}" />
+                <TextBlock Text="or drag a PDF file onto this window" FontSize="14" HorizontalAlignment="Center"
+                           Foreground="{StaticResource MutedInkBrush}" Margin="0,6,0,22" />
+                <Button Style="{StaticResource AccentButton}" HorizontalAlignment="Center" Padding="20,10" Click="OnOpenClick">
+                    <TextBlock Text="Browse…" FontSize="14" />
+                </Button>
             </StackPanel>
-        </Button>
+
+            <!-- Loading -->
+            <Grid x:Name="LoadingPanel" Visibility="Collapsed" Background="#B3FBF8F1">
+                <Border Background="{StaticResource ChromeBrush}" BorderBrush="{StaticResource ChromeBorderBrush}" BorderThickness="1"
+                        CornerRadius="12" Padding="28,22" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <StackPanel Width="300">
+                        <TextBlock x:Name="LoadingText" Text="Reading pages…" FontSize="15" Foreground="{StaticResource InkBrush}" />
+                        <ProgressBar x:Name="LoadingProgress" Height="6" Margin="0,14,0,16" Minimum="0" Maximum="1"
+                                     Foreground="{StaticResource AccentBrush}" Background="{StaticResource HoverBrush}" BorderThickness="0" />
+                        <Button Style="{StaticResource ToolButton}" HorizontalAlignment="Right" Content="Cancel" Click="OnCancelLoadClick" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <!-- Shown when you scroll away while it reads -->
+            <Button x:Name="BackToReadingButton" Visibility="Collapsed" Style="{StaticResource AccentButton}"
+                    HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,34,22" Padding="16,9"
+                    Click="OnBackToReadingClick">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE74B;" FontSize="12" Margin="0,0,8,0" VerticalAlignment="Center" />
+                    <TextBlock Text="Back to reading position" VerticalAlignment="Center" />
+                </StackPanel>
+            </Button>
+            </Grid>
+        </Grid>
 
         <!-- ===== Transport bar ===== -->
         <Border Grid.Row="2" Background="{StaticResource ChromeBrush}" BorderBrush="{StaticResource ChromeBorderBrush}"
@@ -267,6 +357,12 @@
                             <TextBlock Text="Read from cursor" VerticalAlignment="Center" />
                         </StackPanel>
                     </Button>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="10,0,0,0" ToolTip="Go to page (Ctrl+G)">
+                        <TextBlock Text="Page" Style="{StaticResource ChromeText}" Margin="0,0,6,0" />
+                        <TextBox x:Name="PageBox" Style="{StaticResource FieldBox}" Width="52" Padding="6,3" TextAlignment="Center"
+                                 PreviewKeyDown="OnPageBoxKeyDown" GotKeyboardFocus="OnPageBoxFocus" LostKeyboardFocus="OnPageBoxLostFocus" />
+                        <TextBlock x:Name="PageTotal" Style="{StaticResource ChromeText}" Margin="6,0,0,0" />
+                    </StackPanel>
                     <TextBlock x:Name="ZoomLabel" Style="{StaticResource ChromeText}" Margin="10,0,0,0" ToolTip="Ctrl + mouse wheel to zoom" />
                     <CheckBox x:Name="FollowCheck" Content="Follow reading" IsChecked="True" Focusable="False"
                               VerticalAlignment="Center" Margin="14,0,0,0" FontSize="13" Foreground="{StaticResource InkBrush}"

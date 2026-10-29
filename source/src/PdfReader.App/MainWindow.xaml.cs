@@ -38,6 +38,18 @@ public partial class MainWindow : Window
     private string? _message;
     private bool _ready;
 
+    // Opening: the pages can be shown before the text is ready.
+    private bool _pagesOnly;
+    private double _textProgress;
+
+    // Sidebar
+    private OutlineItem[] _outlineItems = Array.Empty<OutlineItem>();
+    private bool _syncingContents;
+    private readonly DispatcherTimer _searchDebounce;
+    private CancellationTokenSource? _searchCts;
+    private int _searchIndex = -1;
+    private bool _editingPage;
+
     public MainWindow(string? fileToOpen)
     {
         InitializeComponent();
@@ -72,6 +84,9 @@ public partial class MainWindow : Window
             _narrator.Rate = SpeedSlider.Value;
             _settings.Rate = SpeedSlider.Value;
         };
+        _searchDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
+        _searchDebounce.Tick += (_, _) => { _searchDebounce.Stop(); RunSearch(); };
+
         SpeedSlider.Value = _settings.Rate;
         _narrator.Rate = _settings.Rate;
         SpeedLabel.Text = $"{_settings.Rate:0.0}×";
@@ -100,6 +115,8 @@ public partial class MainWindow : Window
             UpdateZoomLabel();
         };
         PagesViewControl.PreviewMouseLeftButtonDown += OnReaderMouseDown;
+        PagesViewControl.VisiblePageChanged += _ => UpdatePageBox();
+        ReaderList.AddHandler(ScrollViewer.ScrollChangedEvent, new ScrollChangedEventHandler((_, _) => UpdatePageBox()));
         PagesViewControl.IsSpokenParagraph = i => _book is not null && i >= 0 && i < _book.Paragraphs.Count && _settings.Reading.IsSpoken(_book.Paragraphs[i]);
 
         PreviewKeyDown += OnPreviewKeyDown;
@@ -110,6 +127,7 @@ public partial class MainWindow : Window
         _ready = true;
         UpdateViewButtons();
         UpdateUi();
+        if (_settings.SidebarOpen) ShowSidebar(search: false);
 
         if (voices.Count == 0)
             ShowMessage("No Windows voices were found. Add one in Settings › Time & language › Speech.");
@@ -149,25 +167,45 @@ public partial class MainWindow : Window
 
         _loadCts?.Cancel();
         var cts = _loadCts = new CancellationTokenSource();
+        string cacheFolder = BookCache.DefaultFolder;
 
-        LoadingText.Text = $"Opening {Path.GetFileName(path)}…";
-        LoadingProgress.Value = 0;
-        LoadingPanel.Visibility = Visibility.Visible;
+        // 1. The pages (Windows' PDF engine) and any cached text, side by side.
+        var rendererTask = OpenRendererAsync(path);
+        var cachedTask = Task.Run(() => BookCache.TryLoad(cacheFolder, path));
+        var renderer = await rendererTask;
+        var cached = await cachedTask;
+        if (cts.IsCancellationRequested) { renderer?.Dispose(); return; }
+
+        if (cached is not null && !cached.IsEmpty)
+        {
+            ShowBook(cached, renderer, pagesShown: false);
+            return;
+        }
+
+        // 2. Not seen before: show the pages now and prepare the text in the background.
+        bool pagesShown = renderer is not null;
+        if (renderer is not null) ShowPagesOnly(path, renderer);
+        else
+        {
+            LoadingText.Text = $"Opening {Path.GetFileName(path)}…";
+            LoadingProgress.Value = 0;
+            LoadingPanel.Visibility = Visibility.Visible;
+        }
 
         var progress = new Progress<(int Page, int Total)>(p =>
         {
             if (cts.IsCancellationRequested) return;
-            LoadingProgress.Value = p.Total == 0 ? 0 : (double)p.Page / p.Total;
+            double f = p.Total == 0 ? 0 : (double)p.Page / p.Total;
+            LoadingProgress.Value = f;
             LoadingText.Text = $"Reading page {p.Page} of {p.Total}…";
+            _textProgress = f;
+            if (_pagesOnly) UpdateStatus();
         });
 
         BookDocument book;
-        PdfPageRenderer? renderer = null;
         try
         {
-            var rendererTask = OpenRendererAsync(path);
             book = await Task.Run(() => PdfTextExtractor.Extract(path, progress, cts.Token), cts.Token);
-            renderer = await rendererTask;
         }
         catch (OperationCanceledException)
         {
@@ -175,12 +213,14 @@ public partial class MainWindow : Window
         }
         catch (PdfDocumentEncryptedException)
         {
+            if (ReferenceEquals(_loadCts, cts)) ResetToEmpty();
             MessageBox.Show(this, "This PDF is password-protected, so its text can't be read.", "PDF Reader",
                 MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
         catch (Exception ex)
         {
+            if (ReferenceEquals(_loadCts, cts)) ResetToEmpty();
             MessageBox.Show(this, "Couldn't open this PDF.\n\n" + ex.Message, "PDF Reader",
                 MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
@@ -190,19 +230,70 @@ public partial class MainWindow : Window
             if (ReferenceEquals(_loadCts, cts)) LoadingPanel.Visibility = Visibility.Collapsed;
         }
 
-        if (cts.IsCancellationRequested) { renderer?.Dispose(); return; }
+        if (cts.IsCancellationRequested || !ReferenceEquals(_loadCts, cts)) return;
 
-        if (book.IsEmpty || book.Paragraphs.All(p => !_settings.Reading.IsSpoken(p) && p.Kind == ParagraphKind.HeaderFooter))
+        if (book.IsEmpty || book.Paragraphs.All(p => p.Kind == ParagraphKind.HeaderFooter))
         {
-            renderer?.Dispose();
+            if (!pagesShown) renderer?.Dispose();
+            _pagesOnly = false;
+            ShowMessage("This PDF has no selectable text (probably scanned pages), so it can't be read aloud yet.");
+            if (!pagesShown) ResetToEmpty();
             MessageBox.Show(this,
                 "This PDF has no selectable text — it's probably scanned page images.\n\n" +
                 "Reading scanned pages needs text recognition (OCR), which isn't in this version yet.",
                 "PDF Reader", MessageBoxButton.OK, MessageBoxImage.Information);
+            UpdateUi();
             return;
         }
 
-        ShowBook(book, renderer);
+        ShowBook(book, renderer, pagesShown);
+        _ = Task.Run(() => BookCache.TrySave(cacheFolder, book));
+    }
+
+    /// <summary>Shows the real pages straight away while the text for reading aloud is still being prepared.</summary>
+    private void ShowPagesOnly(string path, PdfPageRenderer renderer)
+    {
+        ResetToEmpty();
+        _renderer = renderer;
+        _pagesOnly = true;
+        _textProgress = 0;
+        _followSuspended = false;
+
+        var sizes = new List<(float, float)>(renderer.PageCount);
+        for (int n = 1; n <= renderer.PageCount; n++) sizes.Add(renderer.PageSizePoints(n));
+        PagesViewControl.LoadPages(renderer, sizes, _settings.PageZoom);
+
+        string title = Path.GetFileNameWithoutExtension(path);
+        BookTitle.Text = title;
+        BookInfo.Text = $"{renderer.PageCount} pages · preparing text…";
+        Title = $"{title} — PDF Reader";
+        EmptyState.Visibility = Visibility.Collapsed;
+        _message = null;
+        ApplyViewMode();
+        UpdateUi();
+    }
+
+    /// <summary>Back to the "no book open" state.</summary>
+    private void ResetToEmpty()
+    {
+        PagesViewControl.Clear();
+        _renderer?.Dispose();
+        _renderer = null;
+        _book = null;
+        _pagesOnly = false;
+        _paragraphs = Array.Empty<ParagraphItem>();
+        _readingParagraph = _cursorParagraph = null;
+        _cursor = null;
+        ReaderList.ItemsSource = null;
+        _outlineItems = Array.Empty<OutlineItem>();
+        ContentsList.ItemsSource = null;
+        ClearSearch();
+        BookTitle.Text = "No book open";
+        BookInfo.Text = "Open a PDF to start";
+        Title = "PDF Reader";
+        EmptyState.Visibility = Visibility.Visible;
+        ApplyViewMode();
+        UpdateUi();
     }
 
     private static async Task<PdfPageRenderer?> OpenRendererAsync(string path)
@@ -211,18 +302,22 @@ public partial class MainWindow : Window
         catch { return null; } // page view unavailable; the text view still works
     }
 
-    private void ShowBook(BookDocument book, PdfPageRenderer? renderer)
+    private void ShowBook(BookDocument book, PdfPageRenderer? renderer, bool pagesShown)
     {
-        PagesViewControl.Clear();
-        _renderer?.Dispose();
-        _renderer = renderer;
+        if (!pagesShown)
+        {
+            PagesViewControl.Clear();
+            if (!ReferenceEquals(_renderer, renderer)) _renderer?.Dispose();
+            _renderer = renderer;
+        }
+        _pagesOnly = false;
 
         _book = book;
         _paragraphs = book.Paragraphs.Select(p => new ParagraphItem(p)).ToArray();
         _readingParagraph = null;
         _cursorParagraph = null;
         _cursor = null;
-        _followSuspended = false;
+        if (!pagesShown) _followSuspended = false;
         _lastSavedParagraph = -1;
         ApplySkipFlags();
 
@@ -247,8 +342,19 @@ public partial class MainWindow : Window
         }
         ReaderList.ItemsSource = items;
 
-        // Page view: the real pages.
-        if (renderer is not null) PagesViewControl.Load(book, renderer, _settings.PageZoom);
+        // Page view: the real pages (already on screen if the text was prepared while you looked at them).
+        if (renderer is not null)
+        {
+            if (pagesShown) PagesViewControl.AttachBook(book);
+            else PagesViewControl.Load(book, renderer, _settings.PageZoom);
+        }
+
+        // Sidebar
+        _outlineItems = book.Outline.Select(o => new OutlineItem(o)).ToArray();
+        ContentsList.ItemsSource = _outlineItems;
+        ContentsEmpty.Visibility = _outlineItems.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        ClearSearch();
+        if (SearchBox.Text.Trim().Length >= 2) RunSearch();
 
         _settings.LastFolder = Path.GetDirectoryName(book.FilePath);
         BookTitle.Text = book.Title;
@@ -266,7 +372,14 @@ public partial class MainWindow : Window
 
         ApplyViewMode();
         UpdateUi();
-        Dispatcher.InvokeAsync(() => { FollowReading(force: true); UpdateZoomLabel(); }, DispatcherPriority.ContextIdle);
+        bool userBrowsing = pagesShown && _followSuspended;
+        Dispatcher.InvokeAsync(() =>
+        {
+            if (!userBrowsing) FollowReading(force: true);
+            UpdateZoomLabel();
+            UpdatePageBox();
+            SyncContents();
+        }, DispatcherPriority.ContextIdle);
     }
 
     private async Task<ImageSource?> RenderPictureAsync(ImageItem item)
@@ -297,8 +410,10 @@ public partial class MainWindow : Window
     private void ApplyViewMode()
     {
         bool hasBook = _book is not null;
-        PagesViewControl.Visibility = hasBook && PageMode ? Visibility.Visible : Visibility.Collapsed;
-        ReaderList.Visibility = hasBook && !PageMode ? Visibility.Visible : Visibility.Collapsed;
+        bool showPages = (hasBook && PageMode) || (_pagesOnly && _renderer is not null);
+        PagesViewControl.Visibility = showPages ? Visibility.Visible : Visibility.Collapsed;
+        ReaderList.Visibility = hasBook && !showPages ? Visibility.Visible : Visibility.Collapsed;
+        TextModeButton.IsEnabled = !_pagesOnly;
         UpdateViewButtons();
         UpdateZoomLabel();
     }
@@ -312,7 +427,8 @@ public partial class MainWindow : Window
 
     private void UpdateZoomLabel()
     {
-        ZoomLabel.Text = _book is not null && PageMode ? $"{PagesViewControl.Zoom / PointsToDip * 100:0}%" : "";
+        bool pages = (_book is not null && PageMode) || _pagesOnly;
+        ZoomLabel.Text = pages ? $"{PagesViewControl.Zoom / PointsToDip * 100:0}%" : "";
     }
 
     // ===== Reading options =======================================================================
@@ -367,6 +483,8 @@ public partial class MainWindow : Window
         if (_narrator.State == NarrationState.Playing) _message = null;
         UpdateStatus();
         FollowReading(force: false);
+        SyncContents();
+        UpdatePageBox();
     }
 
     private void OnNarrationStateChanged()
@@ -511,7 +629,7 @@ public partial class MainWindow : Window
 
     private void SuspendFollowing()
     {
-        if (_book is null || _followSuspended) return;
+        if ((_book is null && !_pagesOnly) || _followSuspended) return;
         _followSuspended = true;
         UpdateUi();
     }
@@ -596,7 +714,7 @@ public partial class MainWindow : Window
 
     private void Zoom(int direction)
     {
-        if (PageMode) PagesViewControl.ZoomBy(direction > 0 ? 1.1 : 1 / 1.1);
+        if (PageMode || _pagesOnly) PagesViewControl.ZoomBy(direction > 0 ? 1.1 : 1 / 1.1);
         else ChangeFontSize(direction);
     }
 
@@ -621,13 +739,16 @@ public partial class MainWindow : Window
 
     // ===== Keyboard & drag-drop ==================================================================
 
-    private ScrollViewer? ActiveScroller() => PageMode ? PagesViewControl.Scroller : FindDescendant<ScrollViewer>(ReaderList);
+    private ScrollViewer? ActiveScroller() => PageMode || _pagesOnly ? PagesViewControl.Scroller : FindDescendant<ScrollViewer>(ReaderList);
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
         bool ctrl = Keyboard.Modifiers.HasFlag(ModifierKeys.Control);
 
         if (ctrl && e.Key == Key.O) { OnOpenClick(this, e); e.Handled = true; return; }
+        if (ctrl && e.Key == Key.F) { ShowSidebar(search: true); e.Handled = true; return; }
+        if (ctrl && e.Key == Key.G) { PageBox.Focus(); PageBox.SelectAll(); e.Handled = true; return; }
+        if (e.Key == Key.F3) { NextSearchHit(Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ? -1 : +1); e.Handled = true; return; }
         if (Keyboard.FocusedElement is ComboBox or ComboBoxItem or TextBox) return;
         if (OptionsPopup.IsOpen) return;
 
@@ -654,7 +775,7 @@ public partial class MainWindow : Window
                 Zoom(-1); break;
             case Key.D0 when ctrl:
             case Key.NumPad0 when ctrl:
-                if (PageMode) { PagesViewControl.FitWidth(); _settings.PageZoom = null; UpdateZoomLabel(); }
+                if (PageMode || _pagesOnly) { PagesViewControl.FitWidth(); _settings.PageZoom = null; UpdateZoomLabel(); }
                 break;
             case Key.PageDown: SuspendFollowing(); scroller?.ScrollToVerticalOffset(scroller.VerticalOffset + scroller.ViewportHeight * 0.9); break;
             case Key.PageUp: SuspendFollowing(); scroller?.ScrollToVerticalOffset(scroller.VerticalOffset - scroller.ViewportHeight * 0.9); break;
@@ -683,6 +804,310 @@ public partial class MainWindow : Window
         if (DroppedPdf(e) is { } path) await OpenAsync(path);
     }
 
+    // ===== Sidebar: Contents ======================================================================
+
+    private void OnSidebarButtonClick(object sender, RoutedEventArgs e)
+    {
+        if (SidebarButton.IsChecked == true) ShowSidebar(search: _settings.SidebarTab == "search");
+        else HideSidebar();
+    }
+
+    private void OnContentsTabClick(object sender, RoutedEventArgs e) => ShowSidebar(search: false);
+    private void OnSearchTabClick(object sender, RoutedEventArgs e) => ShowSidebar(search: true);
+
+    private void ShowSidebar(bool search)
+    {
+        Sidebar.Visibility = Visibility.Visible;
+        SidebarColumn.Width = new GridLength(300);
+        SidebarButton.IsChecked = true;
+        ContentsTab.IsChecked = !search;
+        SearchTab.IsChecked = search;
+        ContentsPanel.Visibility = search ? Visibility.Collapsed : Visibility.Visible;
+        SearchPanel.Visibility = search ? Visibility.Visible : Visibility.Collapsed;
+        _settings.SidebarOpen = true;
+        _settings.SidebarTab = search ? "search" : "contents";
+        if (search)
+        {
+            SearchBox.Focus();
+            SearchBox.SelectAll();
+        }
+        else
+        {
+            Keyboard.ClearFocus();
+            SyncContents(scroll: true);
+        }
+    }
+
+    private void HideSidebar()
+    {
+        Sidebar.Visibility = Visibility.Collapsed;
+        SidebarColumn.Width = new GridLength(0);
+        SidebarButton.IsChecked = false;
+        _settings.SidebarOpen = false;
+        Keyboard.ClearFocus();
+    }
+
+    private void OnContentsClick(object sender, MouseButtonEventArgs e)
+    {
+        if (e.OriginalSource is not DependencyObject d || FindAncestor<ListBoxItem>(d) is not { DataContext: OutlineItem item }) return;
+        JumpToParagraph(item.Entry.ParagraphIndex);
+        _syncingContents = true;
+        ContentsList.SelectedItem = item;
+        _syncingContents = false;
+    }
+
+    /// <summary>Selects the chapter being read in the Contents list.</summary>
+    private void SyncContents(bool scroll = false)
+    {
+        if (_book is null || _outlineItems.Length == 0 || _syncingContents) return;
+        int i = OutlineBuilder.EntryFor(_book.Outline, _narrator.Position.ParagraphIndex);
+        var item = i >= 0 ? _outlineItems[i] : null;
+        if (!ReferenceEquals(ContentsList.SelectedItem, item))
+        {
+            _syncingContents = true;
+            ContentsList.SelectedItem = item;
+            _syncingContents = false;
+            scroll = true;
+        }
+        if (scroll && item is not null && Sidebar.Visibility == Visibility.Visible && ContentsPanel.Visibility == Visibility.Visible)
+            ContentsList.ScrollIntoView(item);
+    }
+
+    /// <summary>Moves reading to the start of a paragraph (keeps reading if it was reading).</summary>
+    private void JumpToParagraph(int paragraphIndex)
+    {
+        if (_book is null || paragraphIndex < 0 || paragraphIndex >= _book.Paragraphs.Count) return;
+        ClearCursor();
+        var pos = new ReadingPosition(paragraphIndex, 0);
+        if (_narrator.State == NarrationState.Playing) _narrator.PlayFrom(pos);
+        else _narrator.MoveTo(pos);
+        ResumeFollowing();
+        var p = _book.Paragraphs[paragraphIndex];
+        if (_narrator.State != NarrationState.Playing)
+            ShowMessage($"Moved to page {p.PageNumber}. Press Play to read from here.");
+    }
+
+    // ===== Sidebar: Search =======================================================================
+
+    private void OnSearchTextChanged(object sender, TextChangedEventArgs e)
+    {
+        SearchHint.Visibility = SearchBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        _searchDebounce.Stop();
+        _searchDebounce.Start();
+    }
+
+    private void OnSearchKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter)
+        {
+            _searchDebounce.Stop();
+            if (SearchResults.Items.Count == 0 || _searchIndex < 0 && SearchStatus.Tag as string != SearchBox.Text) RunSearch(thenGoToFirst: true);
+            else NextSearchHit(Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ? -1 : +1);
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Escape)
+        {
+            Keyboard.ClearFocus();
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Down && SearchResults.Items.Count > 0)
+        {
+            NextSearchHit(+1);
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Up && SearchResults.Items.Count > 0)
+        {
+            NextSearchHit(-1);
+            e.Handled = true;
+        }
+    }
+
+    private async void RunSearch(bool thenGoToFirst = false)
+    {
+        _searchCts?.Cancel();
+        var cts = _searchCts = new CancellationTokenSource();
+        string query = SearchBox.Text;
+        _searchIndex = -1;
+
+        if (_book is not { } book)
+        {
+            SearchResults.ItemsSource = null;
+            SearchStatus.Text = _pagesOnly ? "Search is ready once the text is prepared." : "";
+            return;
+        }
+        if (query.Trim().Length < 2)
+        {
+            SearchResults.ItemsSource = null;
+            SearchStatus.Text = query.Trim().Length == 1 ? "Type at least 2 letters." : "";
+            SearchStatus.Tag = null;
+            return;
+        }
+
+        const int max = 500;
+        SearchStatus.Text = "Searching…";
+        var hits = await Task.Run(() => BookSearch.Find(book, query, max));
+        if (cts.IsCancellationRequested || !ReferenceEquals(book, _book)) return;
+
+        SearchResults.ItemsSource = hits.Select(h => new SearchItem(h)).ToArray();
+        SearchStatus.Tag = query;
+        SearchStatus.Text = hits.Count switch
+        {
+            0 => "No matches.",
+            1 => "1 match",
+            >= max => $"{max}+ matches (showing the first {max})",
+            _ => $"{hits.Count} matches · Enter / F3 for the next",
+        };
+        if (thenGoToFirst && hits.Count > 0) NextSearchHit(+1);
+    }
+
+    private void ClearSearch()
+    {
+        _searchCts?.Cancel();
+        _searchIndex = -1;
+        SearchResults.ItemsSource = null;
+        SearchStatus.Text = "";
+        SearchStatus.Tag = null;
+    }
+
+    private void OnSearchResultClick(object sender, MouseButtonEventArgs e)
+    {
+        if (e.OriginalSource is not DependencyObject d || FindAncestor<ListBoxItem>(d) is not { DataContext: SearchItem item }) return;
+        _searchIndex = SearchResults.Items.IndexOf(item);
+        GoToHit(item.Hit);
+    }
+
+    private void NextSearchHit(int direction)
+    {
+        int count = SearchResults.Items.Count;
+        if (count == 0) { if (SearchBox.Text.Trim().Length >= 2) RunSearch(thenGoToFirst: true); return; }
+        _searchIndex = _searchIndex < 0 ? (direction > 0 ? 0 : count - 1) : ((_searchIndex + direction) % count + count) % count;
+        SearchResults.SelectedIndex = _searchIndex;
+        SearchResults.ScrollIntoView(SearchResults.SelectedItem);
+        if (SearchResults.SelectedItem is SearchItem item) GoToHit(item.Hit);
+    }
+
+    /// <summary>
+    /// Shows a search result. While reading, it drops the cursor there (reading carries on; "Read from cursor" jumps);
+    /// otherwise it moves the start point there.
+    /// </summary>
+    private void GoToHit(SearchHit hit)
+    {
+        if (_book is null) return;
+        HandleWordClick(hit.ParagraphIndex, hit.WordIndex, 1);
+        if (_narrator.State == NarrationState.Idle)
+        {
+            ResumeFollowing();
+        }
+        else
+        {
+            SuspendFollowing();
+            ScrollToWord(hit.ParagraphIndex, hit.WordIndex);
+        }
+    }
+
+    private void ScrollToWord(int paragraphIndex, int wordIndex)
+    {
+        if (PageMode) { PagesViewControl.ScrollToWord(paragraphIndex, wordIndex); return; }
+        if (paragraphIndex < 0 || paragraphIndex >= _paragraphs.Length) return;
+        var item = _paragraphs[paragraphIndex];
+        ReaderList.ScrollIntoView(item);
+        Dispatcher.InvokeAsync(() =>
+        {
+            var scroller = FindDescendant<ScrollViewer>(ReaderList);
+            if (scroller is null || ReaderList.ItemContainerGenerator.ContainerFromItem(item) is not FrameworkElement c) return;
+            try
+            {
+                var top = c.TransformToAncestor(scroller).Transform(new Point(0, 0));
+                scroller.ScrollToVerticalOffset(Math.Max(0, scroller.VerticalOffset + top.Y - scroller.ViewportHeight * 0.3));
+            }
+            catch (InvalidOperationException) { }
+        }, DispatcherPriority.Loaded);
+    }
+
+    // ===== Go to page ============================================================================
+
+    private void OnPageBoxFocus(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        _editingPage = true;
+        Dispatcher.InvokeAsync(PageBox.SelectAll, DispatcherPriority.Input);
+    }
+
+    private void OnPageBoxLostFocus(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        _editingPage = false;
+        UpdatePageBox();
+    }
+
+    private void OnPageBoxKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter)
+        {
+            if (int.TryParse(PageBox.Text.Trim(), out int page)) GoToPage(page);
+            Keyboard.ClearFocus();
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Escape)
+        {
+            Keyboard.ClearFocus();
+            e.Handled = true;
+        }
+    }
+
+    private int TotalPages => _book?.PageCount ?? (_pagesOnly ? PagesViewControl.PageCount : 0);
+
+    /// <summary>Scrolls the view to a page. Reading keeps its place; double-click a word there to read from it.</summary>
+    private void GoToPage(int page)
+    {
+        int total = TotalPages;
+        if (total == 0) return;
+        page = Math.Clamp(page, 1, total);
+        SuspendFollowing();
+
+        if (PageMode || _pagesOnly) PagesViewControl.ScrollToPage(page);
+        else if (ReaderList.ItemsSource is IEnumerable<object> items &&
+                 items.FirstOrDefault(i => i is PageHeaderItem h && h.PageNumber >= page) is { } header)
+        {
+            ReaderList.ScrollIntoView(header);
+            Dispatcher.InvokeAsync(() =>
+            {
+                var scroller = FindDescendant<ScrollViewer>(ReaderList);
+                if (scroller is null || ReaderList.ItemContainerGenerator.ContainerFromItem(header) is not FrameworkElement c) return;
+                try
+                {
+                    var top = c.TransformToAncestor(scroller).Transform(new Point(0, 0));
+                    scroller.ScrollToVerticalOffset(Math.Max(0, scroller.VerticalOffset + top.Y));
+                }
+                catch (InvalidOperationException) { }
+            }, DispatcherPriority.Loaded);
+        }
+
+        if (_book is not null && _narrator.State == NarrationState.Idle)
+        {
+            int first = _book.FirstParagraphOnPage(page);
+            if (first >= 0 && _book.Paragraphs[first].PageNumber == page)
+            {
+                _narrator.MoveTo(new ReadingPosition(first, 0));
+                ShowMessage($"Page {page}. Press Play to read from the top of this page.");
+            }
+        }
+        UpdatePageBox();
+    }
+
+    /// <summary>Shows the page in view (page view) or the page being read (text view).</summary>
+    private void UpdatePageBox()
+    {
+        if (!_ready) return;
+        int total = TotalPages;
+        PageTotal.Text = total > 0 ? $"of {total}" : "";
+        PageBox.IsEnabled = total > 0;
+        if (_editingPage) return;
+        int page = 0;
+        if ((PageMode || _pagesOnly) && PagesViewControl.PageCount > 0) page = PagesViewControl.VisiblePage;
+        else if (_book is not null && !_book.IsEmpty)
+            page = _book.Paragraphs[Math.Clamp(_narrator.Position.ParagraphIndex, 0, _book.Paragraphs.Count - 1)].PageNumber;
+        PageBox.Text = page > 0 ? page.ToString() : "";
+    }
+
     // ===== UI state ==============================================================================
 
     private void ShowMessage(string message)
@@ -696,6 +1121,7 @@ public partial class MainWindow : Window
         if (!_ready) return;
         bool hasBook = _book is not null;
         bool canSpeak = hasBook && _narrator.Voice is not null;
+        SearchBox.IsEnabled = hasBook || _pagesOnly;
         var state = _narrator.State;
 
         PlayButton.IsEnabled = canSpeak;
@@ -719,6 +1145,11 @@ public partial class MainWindow : Window
     private void UpdateStatus()
     {
         if (!_ready) return;
+        if (_pagesOnly)
+        {
+            StatusText.Text = _message ?? $"Preparing text for reading aloud… {_textProgress * 100:0}%  (you can look through the pages meanwhile)";
+            return;
+        }
         if (_book is null || _book.IsEmpty)
         {
             StatusText.Text = _message ?? "";

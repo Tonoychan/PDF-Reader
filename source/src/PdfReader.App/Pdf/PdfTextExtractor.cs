@@ -5,6 +5,7 @@ using UglyToad.PdfPig.Core;
 using UglyToad.PdfPig.DocumentLayoutAnalysis.PageSegmenter;
 using UglyToad.PdfPig.DocumentLayoutAnalysis.ReadingOrderDetector;
 using UglyToad.PdfPig.DocumentLayoutAnalysis.WordExtractor;
+using UglyToad.PdfPig.Outline;
 
 namespace PdfReader.App.Pdf;
 
@@ -15,27 +16,73 @@ namespace PdfReader.App.Pdf;
 /// </summary>
 public static class PdfTextExtractor
 {
+    /// <summary>
+    /// Reads every page. Pages are shared between several workers (each with its own copy of the
+    /// document, since PdfPig documents are not thread-safe), which makes big books much faster.
+    /// </summary>
     public static BookDocument Extract(string path, IProgress<(int Page, int Total)>? progress, CancellationToken ct)
     {
-        using var pdf = PdfDocument.Open(path);
-        var builder = new BookBuilder();
-        int total = pdf.NumberOfPages;
-
-        for (int number = 1; number <= total; number++)
+        int total;
+        IReadOnlyList<RawOutlineItem>? outline;
+        using (var pdf = PdfDocument.Open(path))
         {
-            ct.ThrowIfCancellationRequested();
-            try
-            {
-                builder.AddPage(ReadPage(pdf.GetPage(number), number));
-            }
-            catch (Exception) when (!ct.IsCancellationRequested)
-            {
-                // One broken page should not stop the whole book from loading.
-            }
-            progress?.Report((number, total));
+            total = pdf.NumberOfPages;
+            outline = ReadOutline(pdf);
         }
 
+        var pages = new PageInput?[total];
+        int done = 0;
+        int workers = total < 12 ? 1 : Math.Clamp(Environment.ProcessorCount - 1, 1, 6);
+
+        Parallel.For(0, workers, new ParallelOptions { CancellationToken = ct, MaxDegreeOfParallelism = workers }, worker =>
+        {
+            using var pdf = PdfDocument.Open(path);
+            for (int number = worker + 1; number <= total; number += workers)
+            {
+                ct.ThrowIfCancellationRequested();
+                try
+                {
+                    pages[number - 1] = ReadPage(pdf.GetPage(number), number);
+                }
+                catch (Exception) when (!ct.IsCancellationRequested)
+                {
+                    // One broken page should not stop the whole book from loading.
+                }
+                progress?.Report((Interlocked.Increment(ref done), total));
+            }
+        });
+
+        var builder = new BookBuilder();
+        foreach (var page in pages)
+            if (page is not null) builder.AddPage(page);
+        builder.SetPdfOutline(outline);
         return builder.Build(path, total);
+    }
+
+    /// <summary>The PDF's own outline (the bookmarks panel in other readers), flattened with levels.</summary>
+    private static IReadOnlyList<RawOutlineItem>? ReadOutline(PdfDocument pdf)
+    {
+        try
+        {
+            if (!pdf.TryGetBookmarks(out var bookmarks) || bookmarks is null) return null;
+            var list = new List<RawOutlineItem>();
+            void Walk(IEnumerable<BookmarkNode> nodes, int level)
+            {
+                foreach (var node in nodes)
+                {
+                    if (node is DocumentBookmarkNode doc && !string.IsNullOrWhiteSpace(node.Title))
+                        list.Add(new RawOutlineItem(TextTools.CollapseWhitespace(TextTools.Normalize(node.Title)), level, doc.PageNumber));
+                    if (list.Count > 5000) return;
+                    Walk(node.Children, level + 1);
+                }
+            }
+            Walk(bookmarks.Roots, 0);
+            return list;
+        }
+        catch
+        {
+            return null; // a broken outline just means Contents falls back to detected headings
+        }
     }
 
     private static PageInput ReadPage(Page page, int number)
@@ -62,9 +109,7 @@ public static class PdfTextExtractor
             // Pictures are only needed for the text view; ignore broken image data.
         }
 
-        var words = page.GetWords(NearestNeighbourWordExtractor.Instance)
-            .Where(w => !string.IsNullOrWhiteSpace(w.Text))
-            .ToList();
+        var words = JoinUnspacedPieces(page.GetWords(NearestNeighbourWordExtractor.Instance).ToList());
         if (words.Count == 0) return input;
 
         TextToken Token(Word w) => new(w.Text, ToBox(w.BoundingBox), FontSize(w), IsBold(w));
@@ -90,6 +135,42 @@ public static class PdfTextExtractor
         }
 
         return input;
+    }
+
+    /// <summary>
+    /// Some PDFs write real space characters between words. On those pages, two pieces on the same line with
+    /// no space between them are one word that the word finder split (common in letter-spaced headings:
+    /// "PROGR" + "AMMING"). Whitespace pieces are dropped afterwards.
+    /// </summary>
+    private static List<Word> JoinUnspacedPieces(List<Word> words)
+    {
+        bool explicitSpaces = words.Any(w => w.Text.Length > 0 && string.IsNullOrWhiteSpace(w.Text));
+        var result = new List<Word>(words.Count);
+        Word? prev = null;
+        bool spaceSincePrev = false;
+        foreach (var w in words)
+        {
+            if (string.IsNullOrWhiteSpace(w.Text)) { spaceSincePrev = true; continue; }
+            if (explicitSpaces && prev is not null && !spaceSincePrev && SameLineTouching(prev, w))
+            {
+                var merged = new Word(prev.Letters.Concat(w.Letters).ToList());
+                result[^1] = merged;
+                prev = merged;
+                continue;
+            }
+            result.Add(w);
+            prev = w;
+            spaceSincePrev = false;
+        }
+        return result;
+    }
+
+    private static bool SameLineTouching(Word a, Word b)
+    {
+        double size = Math.Max(1, Math.Max(FontSize(a), FontSize(b)));
+        double gap = b.BoundingBox.Left - a.BoundingBox.Right;
+        bool sameLine = Math.Abs(a.BoundingBox.Bottom - b.BoundingBox.Bottom) < size * 0.25;
+        return sameLine && gap > -size * 0.1 && gap < size * 0.4;
     }
 
     private static float FontSize(Word w)

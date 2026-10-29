@@ -23,6 +23,9 @@ public sealed class AppSettings
     /// <summary>Page view zoom in screen units per PDF point; null = fit to width.</summary>
     public double? PageZoom { get; set; }
     public ReadingOptions Reading { get; set; } = new();
+    public bool SidebarOpen { get; set; }
+    /// <summary>"contents" or "search".</summary>
+    public string SidebarTab { get; set; } = "contents";
     public Dictionary<string, SavedPosition> Positions { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     private const int MaxRememberedBooks = 200;

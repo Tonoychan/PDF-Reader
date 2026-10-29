@@ -78,12 +78,30 @@ public sealed record ReflowImage(int PageNumber, BoxF Box) : ReflowEntry;
 /// <summary>The whole extracted book.</summary>
 public sealed class BookDocument
 {
-    public BookDocument(string filePath, int pageCount, IReadOnlyList<Paragraph> paragraphs, IReadOnlyList<PageInfo>? pages = null)
+    public BookDocument(string filePath, int pageCount, IReadOnlyList<Paragraph> paragraphs, IReadOnlyList<PageInfo>? pages = null,
+        IReadOnlyList<OutlineEntry>? outline = null)
     {
         FilePath = filePath;
         PageCount = pageCount;
         Paragraphs = paragraphs;
         Pages = pages ?? Array.Empty<PageInfo>();
+        Outline = outline ?? OutlineBuilder.Build(paragraphs, null);
+    }
+
+    /// <summary>The Contents list (from the PDF's outline, or detected headings).</summary>
+    public IReadOnlyList<OutlineEntry> Outline { get; }
+
+    /// <summary>First paragraph on the page (or the next page that has text), or -1.</summary>
+    public int FirstParagraphOnPage(int pageNumber)
+    {
+        int lo = 0, hi = Paragraphs.Count - 1, best = -1;
+        while (lo <= hi)
+        {
+            int mid = (lo + hi) / 2;
+            if (Paragraphs[mid].PageNumber >= pageNumber) { best = mid; hi = mid - 1; }
+            else lo = mid + 1;
+        }
+        return best;
     }
 
     public string FilePath { get; }
@@ -144,6 +162,10 @@ public sealed class BookBuilder
 
     private readonly List<RawBlock> _blocks = new();
     private readonly SortedDictionary<int, PageInfo> _pages = new();
+    private IReadOnlyList<RawOutlineItem>? _pdfOutline;
+
+    /// <summary>The PDF's own outline (bookmarks), if it has one.</summary>
+    public void SetPdfOutline(IReadOnlyList<RawOutlineItem>? outline) => _pdfOutline = outline;
 
     /// <summary>Running headers/footers are short lines.</summary>
     public const int MaxHeaderLength = 100;
@@ -207,7 +229,8 @@ public sealed class BookBuilder
         for (int n = 1; n <= pageCount; n++)
             pages.Add(_pages.TryGetValue(n, out var info) ? info : new PageInfo(n, 0, 0, Array.Empty<BoxF>()));
 
-        return new BookDocument(filePath, pageCount, paragraphs, _pages.Count > 0 ? pages : null);
+        return new BookDocument(filePath, pageCount, paragraphs, _pages.Count > 0 ? pages : null,
+            OutlineBuilder.Build(paragraphs, _pdfOutline));
     }
 
     // ---- classification --------------------------------------------------------------------------

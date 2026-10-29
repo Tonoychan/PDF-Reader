@@ -118,7 +118,12 @@ public sealed class PagesView : Grid
         _renderTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(60) };
         _renderTimer.Tick += (_, _) => { _renderTimer.Stop(); RenderVisible(); };
 
-        _scroller.ScrollChanged += (_, _) => ScheduleRender();
+        _scroller.ScrollChanged += (_, _) =>
+        {
+            ScheduleRender();
+            int page = VisiblePage;
+            if (page != _lastVisiblePage) { _lastVisiblePage = page; VisiblePageChanged?.Invoke(page); }
+        };
         _scroller.SizeChanged += (_, _) =>
         {
             if (_fitPending) FitWidth();
@@ -150,22 +155,32 @@ public sealed class PagesView : Grid
 
     // ---- loading ---------------------------------------------------------------------------------
 
-    public void Load(BookDocument book, PdfPageRenderer renderer, double? zoom)
+    /// <summary>Shows the pages right away (sizes only); the text for highlighting arrives later via <see cref="AttachBook"/>.</summary>
+    public void LoadPages(PdfPageRenderer renderer, IReadOnlyList<(float Width, float Height)> sizes, double? zoom)
     {
         Clear();
-        _book = book;
         _renderer = renderer;
 
-        for (int n = 1; n <= book.PageCount; n++)
+        for (int n = 1; n <= sizes.Count; n++)
         {
-            var info = book.Page(n);
-            var (w, h) = info is { Width: > 0, Height: > 0 } ? (info.Width, info.Height) : renderer.PageSizePoints(n);
+            var (w, h) = sizes[n - 1];
             var slot = new PageSlot(n, w, h) { Margin = new Thickness(0, 0, 0, Gap) };
             slot.MouseLeftButtonDown += OnSlotMouseDown;
             _slots.Add(slot);
             _panel.Children.Add(slot);
         }
 
+        if (zoom is { } z) { _zoom = z; _fitPending = false; }
+        else _fitPending = true;
+        ApplyZoom();
+        _scroller.ScrollToTop();
+        Dispatcher.InvokeAsync(() => { if (_fitPending) FitWidth(); ScheduleRender(); }, DispatcherPriority.Loaded);
+    }
+
+    /// <summary>Connects the extracted text (word positions) to the pages already shown.</summary>
+    public void AttachBook(BookDocument book)
+    {
+        _book = book;
         _wordsByPage = new Dictionary<int, List<(int, int, BoxF)>>();
         foreach (var p in book.Paragraphs)
         {
@@ -177,12 +192,44 @@ public sealed class PagesView : Grid
                 if (!p.Geometry[i].Box2.IsEmpty) list.Add((p.Index, i, p.Geometry[i].Box2));
             }
         }
+        UpdateMarks();
+    }
 
-        if (zoom is { } z) { _zoom = z; _fitPending = false; }
-        else _fitPending = true;
-        ApplyZoom();
-        _scroller.ScrollToTop();
-        Dispatcher.InvokeAsync(() => { if (_fitPending) FitWidth(); ScheduleRender(); }, DispatcherPriority.Loaded);
+    public void Load(BookDocument book, PdfPageRenderer renderer, double? zoom)
+    {
+        var sizes = new List<(float, float)>(book.PageCount);
+        for (int n = 1; n <= book.PageCount; n++)
+        {
+            var info = book.Page(n);
+            sizes.Add(info is { Width: > 0, Height: > 0 } ? (info.Width, info.Height) : renderer.PageSizePoints(n));
+        }
+        LoadPages(renderer, sizes, zoom);
+        AttachBook(book);
+    }
+
+    public int PageCount => _slots.Count;
+
+    /// <summary>The page at the upper third of the view.</summary>
+    public int VisiblePage => _slots.Count == 0 ? 0 : SlotAt(_scroller.VerticalOffset + _scroller.ViewportHeight / 3) + 1;
+
+    /// <summary>The page shown at the upper third of the view changed (1-based).</summary>
+    public event Action<int>? VisiblePageChanged;
+    private int _lastVisiblePage;
+
+    public void ScrollToPage(int pageNumber)
+    {
+        if (_slots.Count == 0) return;
+        int i = Math.Clamp(pageNumber, 1, _slots.Count) - 1;
+        _scroller.ScrollToVerticalOffset(Math.Max(0, _tops[i] - Gap / 2));
+    }
+
+    /// <summary>Scrolls so a word sits in the upper third of the view.</summary>
+    public void ScrollToWord(int paragraph, int word)
+    {
+        if (!TryGetWord(paragraph, word, out var p, out var g)) return;
+        int i = p.PageNumber - 1;
+        if (i >= _tops.Length) return;
+        _scroller.ScrollToVerticalOffset(Math.Max(0, _tops[i] + g.Box.Y * _zoom - _scroller.ViewportHeight * 0.30));
     }
 
     public void Clear()
@@ -196,6 +243,7 @@ public sealed class PagesView : Grid
         _wordsByPage.Clear();
         _book = null;
         _renderer = null;
+        _lastVisiblePage = 0;
         _readPara = _readWord = _cursorPara = _cursorWord = -1;
     }
 

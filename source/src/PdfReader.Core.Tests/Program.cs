@@ -163,6 +163,77 @@ Check("picture placed before the text below it", imgIdx >= 0 && imgIdx < raceIdx
 var merged = BookBuilder.MergeImages(new[] { new BoxF(0, 0, 100, 100), new BoxF(100, 0, 100, 100), new BoxF(300, 300, 50, 50) }, 612, 792);
 Eq("touching image tiles merged", 2, merged.Count);
 
+
+Console.WriteLine("Outline");
+{
+    var ob = new BookBuilder();
+    PageInput Pg(int n, params List<TextLineInput>[] blocks) => new() { Number = n, Width = 612, Height = 792, Blocks = blocks.ToList() };
+    TextLineInput W(float y, float size, string text, float x = 135)
+    {
+        var toks = new List<TextToken>();
+        foreach (var w in text.Split(' ')) { toks.Add(new TextToken(w, new BoxF(x, y, w.Length * size * 0.5f, size), size)); x += w.Length * size * 0.5f + size * 0.3f; }
+        return new TextLineInput(toks);
+    }
+    string body = "Profiling is the process of measuring aspects of your game performance at runtime and it matters.";
+    ob.AddPage(Pg(1, new() { W(155, 40, "PROFILING") }, new() { W(300, 9, body), W(313, 9, body) }));
+    ob.AddPage(Pg(2, new() { W(60, 14, "Use the Profiler") }, new() { W(100, 9, body), W(113, 9, body) }));
+    ob.AddPage(Pg(3, new() { W(60, 14, "Memory") }, new() { W(100, 9, body), W(113, 9, body) }));
+    ob.AddPage(Pg(4, new() { W(155, 40, "ADAPTIVE") }, new() { W(205, 40, "PERFORMANCE") }, new() { W(300, 9, body), W(313, 9, body) }));
+    var b1 = ob.Build("o.pdf", 4);
+    Eq("detected outline has 4 entries", 4, b1.Outline.Count);
+    Eq("run-on banner joined", "Adaptive performance", b1.Outline[3].Title);
+    Eq("all-caps banner tidied", "Profiling", b1.Outline[0].Title);
+    Eq("big heading is level 0", 0, b1.Outline[0].Level);
+    Eq("smaller heading is level 1", 1, b1.Outline[1].Level);
+    Eq("entry links to its paragraph", "Use the Profiler", b1.Paragraphs[b1.Outline[1].ParagraphIndex].Text);
+    Eq("entry for a body paragraph", 1, OutlineBuilder.EntryFor(b1.Outline, b1.Outline[1].ParagraphIndex + 1));
+    Eq("entry before the first heading", -1, OutlineBuilder.EntryFor(b1.Outline, -5));
+
+    ob.SetPdfOutline(new[] { new RawOutlineItem("Profiling", 0, 1), new RawOutlineItem("Use the profiler", 1, 2), new RawOutlineItem("Memory", 1, 3), new RawOutlineItem("Missing title", 1, 3) });
+    var b2 = ob.Build("o.pdf", 4);
+    Eq("pdf outline used", 4, b2.Outline.Count);
+    Eq("pdf outline matched by title (case-insensitive)", "Use the Profiler", b2.Paragraphs[b2.Outline[1].ParagraphIndex].Text);
+    Eq("unmatched title falls back to page's first paragraph", "Memory", b2.Paragraphs[b2.Outline[3].ParagraphIndex].Text);
+    Eq("first paragraph on page 2", b2.Outline[1].ParagraphIndex, b2.FirstParagraphOnPage(2));
+    Eq("first paragraph past the end", -1, b2.FirstParagraphOnPage(9));
+
+    Console.WriteLine("Search");
+    var hits = BookSearch.Find(b2, "PROFILER");
+    Eq("search is case-insensitive", 1, hits.Count);
+    Eq("hit word index", 2, hits[0].WordIndex);
+    Eq("hit match text", "Profiler", hits[0].Match);
+    var many = BookSearch.Find(b2, "game performance");
+    Eq("phrase across words, all occurrences", 8, many.Count);
+    Check("snippet has context", many[0].Before.EndsWith("your ") && many[0].After.StartsWith(" at runtime"));
+    Eq("cafe matches café", 1, BookSearch.Find(new BookDocument("x.pdf", 1, new[] { new Paragraph(0, 1, "A café nearby.") }), "cafe").Count);
+    Eq("too-short query ignored", 0, BookSearch.Find(b2, "a").Count);
+    Eq("max hits respected", 2, BookSearch.Find(b2, "game", maxHits: 2).Count);
+
+    Console.WriteLine("BookCache");
+    var ms = new MemoryStream();
+    BookCache.Write(ms, b2);
+    ms.Position = 0;
+    var back = BookCache.Read(ms, "o.pdf")!;
+    Eq("cache paragraphs", b2.Paragraphs.Count, back.Paragraphs.Count);
+    Eq("cache text", b2.Paragraphs[3].Text, back.Paragraphs[3].Text);
+    Eq("cache kind", b2.Paragraphs[0].Kind, back.Paragraphs[0].Kind);
+    Eq("cache geometry", b2.Paragraphs[3].Geometry[2], back.Paragraphs[3].Geometry[2]);
+    Eq("cache outline", b2.Outline[1], back.Outline[1]);
+    Eq("cache pages", b2.Pages[1].Height, back.Pages[1].Height);
+    Check("cache file is compact", ms.Length < 4000, $"{ms.Length} bytes");
+    var junk = new MemoryStream(new byte[] { 1, 2, 3 });
+    bool threw = false; try { BookCache.Read(junk, "o.pdf"); } catch { threw = true; }
+    Check("junk cache rejected", threw);
+    string dir = Path.Combine(Path.GetTempPath(), "pdfreader-cache-" + Guid.NewGuid());
+    string fake = Path.Combine(dir, "book.pdf"); Directory.CreateDirectory(dir); File.WriteAllText(fake, "x");
+    var real = new BookDocument(fake, b2.PageCount, b2.Paragraphs, b2.Pages, b2.Outline);
+    BookCache.TrySave(dir, real);
+    Eq("cache round-trip via folder", real.Paragraphs.Count, BookCache.TryLoad(dir, fake)?.Paragraphs.Count);
+    File.WriteAllText(fake, "changed!");
+    Eq("edited file invalidates cache", (int?)null, BookCache.TryLoad(dir, fake)?.Paragraphs.Count);
+    Directory.Delete(dir, true);
+}
+
 Console.WriteLine("ReadingPlan");
 var spoken = new ReadingOptions();
 var plan = new ReadingPlan(book, spoken.IsSpoken);
