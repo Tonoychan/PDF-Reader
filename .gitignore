@@ -1,0 +1,11 @@
+# Build tools and outputs (rebuild with build.cmd)
+.sdk/
+build-output/
+dotnet-install.ps1
+build.log
+PDFReader.exe
+bin/
+obj/
+*.user
+.vs/
+backups/
