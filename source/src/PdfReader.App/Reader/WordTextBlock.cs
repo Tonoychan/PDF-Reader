@@ -34,6 +34,10 @@ public sealed class WordTextBlock : TextBlock
     public static readonly RoutedEvent WordClickedEvent = EventManager.RegisterRoutedEvent(
         "WordClicked", RoutingStrategy.Bubble, typeof(WordClickedEventHandler), typeof(WordTextBlock));
 
+    /// <summary>Right-click on a word (ClickCount is 1).</summary>
+    public static readonly RoutedEvent WordRightClickedEvent = EventManager.RegisterRoutedEvent(
+        "WordRightClicked", RoutingStrategy.Bubble, typeof(WordClickedEventHandler), typeof(WordTextBlock));
+
     private Run[] _wordRuns = Array.Empty<Run>();
     private readonly Dictionary<Run, int> _runToWord = new();
     private int _shownReading = -1;
@@ -171,6 +175,18 @@ public sealed class WordTextBlock : TextBlock
         if (e.OriginalSource is Run run && _runToWord.TryGetValue(run, out int word))
         {
             RaiseEvent(new WordClickedEventArgs(WordClickedEvent, item, word, e.ClickCount));
+            e.Handled = true;
+        }
+    }
+
+    protected override void OnMouseRightButtonUp(MouseButtonEventArgs e)
+    {
+        base.OnMouseRightButtonUp(e);
+        var item = Item;
+        if (item is null) return;
+        if (e.OriginalSource is Run run && _runToWord.TryGetValue(run, out int word))
+        {
+            RaiseEvent(new WordClickedEventArgs(WordRightClickedEvent, item, word, 1));
             e.Handled = true;
         }
     }

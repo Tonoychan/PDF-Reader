@@ -234,6 +234,87 @@ Console.WriteLine("Outline");
     Directory.Delete(dir, true);
 }
 
+
+Console.WriteLine("Library");
+{
+    var lib = new LibraryStore();
+    var t0 = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc);
+    lib.Touch(@"C:\b\one.pdf", "One", 10, t0);
+    lib.Touch(@"C:\b\two.pdf", "Two", 20, t0.AddHours(1));
+    lib.Touch(@"C:\B\ONE.pdf", "One", 10, t0.AddHours(2));
+    Eq("touch dedupes by path (case-insensitive)", 2, lib.Entries.Count);
+    Eq("most recent first", "One", lib.Recent[0].Title);
+    lib.UpdateProgress(@"c:\b\two.pdf", 7, 0.35);
+    Eq("progress page", 7, lib.Find(@"C:\b\two.pdf")!.Page);
+    lib.UpdateProgress(@"C:\b\two.pdf", 7, 3.0);
+    Eq("progress clamped", 1.0, lib.Find(@"C:\b\two.pdf")!.Progress);
+
+    lib.ApplyFolderScan(new[] { @"C:\b\two.pdf", @"C:\b\three.pdf", @"C:\b\sub\four.pdf" });
+    string T3 = Path.GetFileNameWithoutExtension(@"C:\b\three.pdf"), T4 = Path.GetFileNameWithoutExtension(@"C:\b\sub\four.pdf");
+    Eq("folder books listed by title", string.Join(",", new[] { T4, T3, "Two" }.OrderBy(x => x, StringComparer.CurrentCultureIgnoreCase)), string.Join(",", lib.FolderBooks.Select(e => e.Title)));
+    Check("opened book outside folder stays recent", lib.Recent.Any(e => e.Title == "One"));
+
+    lib.Remove(@"C:\b\two.pdf", alsoFromFolder: false);
+    Check("removed from recent", lib.Recent.All(e => e.Title != "Two"));
+    Check("still in folder", lib.FolderBooks.Any(e => e.Title == "Two"));
+    lib.Remove(@"C:\b\three.pdf", alsoFromFolder: true);
+    lib.ApplyFolderScan(new[] { @"C:\b\two.pdf", @"C:\b\three.pdf" });
+    Check("hidden book stays hidden after rescan", lib.FolderBooks.All(e => e.Title != T3));
+    Check("book gone from folder disappears", lib.FolderBooks.All(e => e.Title != T4));
+    lib.Touch(@"C:\b\three.pdf", "three", 5);
+    Check("opening a hidden book un-hides it", lib.FolderBooks.Any(e => e.Title == "three"));
+    lib.ClearFolder();
+    Eq("clear folder keeps opened books only", "One,three", string.Join(",", lib.Entries.Select(e => e.Title).OrderBy(x => x)));
+
+    var many = new LibraryStore();
+    for (int i = 0; i < 50; i++) many.Touch($@"C:\m\{i}.pdf", i.ToString(), 1, t0.AddMinutes(i));
+    Eq("recent list trimmed", LibraryStore.MaxRecent, many.Entries.Count);
+    Eq("oldest dropped first", "10", many.Recent[^1].Title);
+
+    string libFile = Path.Combine(Path.GetTempPath(), "pdfreader-lib-" + Guid.NewGuid() + ".json");
+    lib.Save(libFile);
+    Eq("library round-trips", lib.Entries.Count, LibraryStore.Load(libFile).Entries.Count);
+    File.WriteAllText(libFile, "{oops");
+    Eq("corrupt library -> empty", 0, LibraryStore.Load(libFile).Entries.Count);
+    File.Delete(libFile);
+
+    string dir = Path.Combine(Path.GetTempPath(), "pdfreader-scan-" + Guid.NewGuid());
+    Directory.CreateDirectory(Path.Combine(dir, "sub"));
+    File.WriteAllText(Path.Combine(dir, "a.pdf"), ""); File.WriteAllText(Path.Combine(dir, "sub", "b.PDF"), ""); File.WriteAllText(Path.Combine(dir, "c.txt"), "");
+    Eq("folder scan finds PDFs in subfolders", 2, LibraryStore.ScanFolder(dir).Count);
+    Directory.Delete(dir, true);
+}
+
+Console.WriteLine("Bookmarks");
+{
+    var nbb = new BookBuilder();
+    nbb.AddBlock(1, new[] { "Chapter One" });
+    nbb.AddBlock(1, new[] { string.Join(" ", Enumerable.Range(1, 40).Select(i => "word" + i)) });
+    nbb.AddBlock(2, new[] { "Second page text here." });
+    var nbook = nbb.Build("n.pdf", 2);
+    var notes = new BookNotes { BookPath = "n.pdf" };
+    var bm1 = notes.Add(nbook, new ReadingPosition(2, 3));
+    var bm0 = notes.Add(nbook, new ReadingPosition(1, 8), "important");
+    Eq("bookmarks sorted in reading order", bm0.Id, notes.Items[0].Id);
+    Eq("bookmark snaps to word start", 6, bm0.Char);
+    Eq("bookmark page", 2, bm1.Page);
+    Check("snippet trimmed to a word", bm0.Snippet.EndsWith("…") && bm0.Snippet.Length < 95, bm0.Snippet);
+    var again = notes.Add(nbook, new ReadingPosition(1, 9), "more");
+    Eq("same word returns existing bookmark", bm0.Id, again.Id);
+    Eq("note appended", "important\nmore", bm0.Note);
+    Eq("bookmarks on page 2", 1, notes.OnPage(2).Count());
+    string md = notes.ToMarkdown("Test");
+    Check("markdown export", md.Contains("# Notes — Test") && md.Contains("## Page 1") && md.Contains("important"));
+    string nd = Path.Combine(Path.GetTempPath(), "pdfreader-notes-" + Guid.NewGuid());
+    notes.Save(nd);
+    var loaded = BookNotes.Load(nd, "N.PDF");
+    Eq("notes round-trip (path case-insensitive)", 2, loaded.Items.Count);
+    Check("remove bookmark", loaded.Remove(bm1.Id) && loaded.Items.Count == 1);
+    loaded.Remove(bm0.Id); loaded.Save(nd);
+    Eq("empty notes file deleted", 0, Directory.GetFiles(nd).Length);
+    Directory.Delete(nd, true);
+}
+
 Console.WriteLine("ReadingPlan");
 var spoken = new ReadingOptions();
 var plan = new ReadingPlan(book, spoken.IsSpoken);

@@ -6,6 +6,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Microsoft.Win32;
+using PdfReader.App.Library;
 using PdfReader.App.Narration;
 using PdfReader.App.Pdf;
 using PdfReader.App.Reader;
@@ -50,11 +51,21 @@ public partial class MainWindow : Window
     private int _searchIndex = -1;
     private bool _editingPage;
 
+    // Library & bookmarks
+    private readonly string _libraryPath = LibraryStore.DefaultPath;
+    private readonly LibraryStore _library;
+    private BookNotes? _notes;
+    private readonly DispatcherTimer _notesSave;
+    private bool _scanningFolder;
+
     public MainWindow(string? fileToOpen)
     {
         InitializeComponent();
 
         _settings = AppSettings.Load(_settingsPath);
+        _library = LibraryStore.Load(_libraryPath);
+        _notesSave = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
+        _notesSave.Tick += (_, _) => { _notesSave.Stop(); _notes?.Save(BookNotes.DefaultFolder); };
         _narrator = new NarrationController(Dispatcher) { PauseAroundHeadings = _settings.Reading.PauseAroundHeadings };
         _narrator.StateChanged += OnNarrationStateChanged;
         _narrator.WordChanged += OnWordChanged;
@@ -116,6 +127,8 @@ public partial class MainWindow : Window
         };
         PagesViewControl.PreviewMouseLeftButtonDown += OnReaderMouseDown;
         PagesViewControl.VisiblePageChanged += _ => UpdatePageBox();
+        PagesViewControl.WordRightClicked += ShowWordMenu;
+        ReaderList.AddHandler(WordTextBlock.WordRightClickedEvent, new WordClickedEventHandler((_, e) => ShowWordMenu(e.Item.Model.Index, e.WordIndex)));
         ReaderList.AddHandler(ScrollViewer.ScrollChangedEvent, new ScrollChangedEventHandler((_, _) => UpdatePageBox()));
         PagesViewControl.IsSpokenParagraph = i => _book is not null && i >= 0 && i < _book.Paragraphs.Count && _settings.Reading.IsSpoken(_book.Paragraphs[i]);
 
@@ -127,13 +140,17 @@ public partial class MainWindow : Window
         _ready = true;
         UpdateViewButtons();
         UpdateUi();
-        if (_settings.SidebarOpen) ShowSidebar(search: false);
+        if (_settings.SidebarOpen) ShowSidebar("contents");
 
         if (voices.Count == 0)
             ShowMessage("No Windows voices were found. Add one in Settings › Time & language › Speech.");
 
+        EmptyState.Visibility = Visibility.Collapsed;
         if (fileToOpen is not null)
             Loaded += async (_, _) => await OpenAsync(fileToOpen);
+        else
+            ShowLibrary();
+        if (_settings.LibraryFolder is not null) Loaded += async (_, _) => await RescanFolderAsync();
     }
 
     private bool PageMode => _settings.ViewMode == "page" && _renderer is not null;
@@ -187,6 +204,7 @@ public partial class MainWindow : Window
         if (renderer is not null) ShowPagesOnly(path, renderer);
         else
         {
+            HideLibrary(force: true);
             LoadingText.Text = $"Opening {Path.GetFileName(path)}…";
             LoadingProgress.Value = 0;
             LoadingPanel.Visibility = Visibility.Visible;
@@ -264,6 +282,7 @@ public partial class MainWindow : Window
         PagesViewControl.LoadPages(renderer, sizes, _settings.PageZoom);
 
         string title = Path.GetFileNameWithoutExtension(path);
+        HideLibrary(force: true);
         BookTitle.Text = title;
         BookInfo.Text = $"{renderer.PageCount} pages · preparing text…";
         Title = $"{title} — PDF Reader";
@@ -291,9 +310,11 @@ public partial class MainWindow : Window
         BookTitle.Text = "No book open";
         BookInfo.Text = "Open a PDF to start";
         Title = "PDF Reader";
-        EmptyState.Visibility = Visibility.Visible;
+        _notes = null;
+        RefreshBookmarks();
         ApplyViewMode();
         UpdateUi();
+        ShowLibrary();
     }
 
     private static async Task<PdfPageRenderer?> OpenRendererAsync(string path)
@@ -362,8 +383,15 @@ public partial class MainWindow : Window
         Title = $"{book.Title} — PDF Reader";
         EmptyState.Visibility = Visibility.Collapsed;
 
+        // Library and bookmarks
+        _library.Touch(book.FilePath, book.Title, book.PageCount);
+        _notes = BookNotes.Load(BookNotes.DefaultFolder, book.FilePath);
+        RefreshBookmarks();
+        HideLibrary(force: true);
+
         var saved = _settings.Recall(book.FilePath, book);
         _narrator.Load(book, saved ?? ReadingPosition.Start, p => _settings.Reading.IsSpoken(p));
+        UpdateLibraryProgress();
         _message = saved is { } s
             ? $"Picked up where you left off (page {book.Paragraphs[s.ParagraphIndex].PageNumber}). Press Play."
             : "Press Play to start reading, or click a word to start from there.";
@@ -746,7 +774,14 @@ public partial class MainWindow : Window
         bool ctrl = Keyboard.Modifiers.HasFlag(ModifierKeys.Control);
 
         if (ctrl && e.Key == Key.O) { OnOpenClick(this, e); e.Handled = true; return; }
-        if (ctrl && e.Key == Key.F) { ShowSidebar(search: true); e.Handled = true; return; }
+        if (ctrl && e.Key == Key.L) { if (LibraryPanel.Visibility == Visibility.Visible) HideLibrary(); else ShowLibrary(); e.Handled = true; return; }
+        if (LibraryPanel.Visibility == Visibility.Visible)
+        {
+            if (e.Key == Key.Escape && HideLibrary()) e.Handled = true;
+            return; // the rest of the shortcuts are for the reader
+        }
+        if (ctrl && e.Key == Key.F) { ShowSidebar("search"); e.Handled = true; return; }
+        if (ctrl && e.Key == Key.D) { AddBookmarkHere(focusNote: false); e.Handled = true; return; }
         if (ctrl && e.Key == Key.G) { PageBox.Focus(); PageBox.SelectAll(); e.Handled = true; return; }
         if (e.Key == Key.F3) { NextSearchHit(Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ? -1 : +1); e.Handled = true; return; }
         if (Keyboard.FocusedElement is ComboBox or ComboBoxItem or TextBox) return;
@@ -804,29 +839,341 @@ public partial class MainWindow : Window
         if (DroppedPdf(e) is { } path) await OpenAsync(path);
     }
 
+    // ===== Library =================================================================================
+
+    private void OnLibraryButtonClick(object sender, RoutedEventArgs e)
+    {
+        if (LibraryButton.IsChecked == true) ShowLibrary();
+        else if (!HideLibrary()) LibraryButton.IsChecked = true;
+    }
+
+    private void OnLibraryBackClick(object sender, RoutedEventArgs e) => HideLibrary();
+
+    private void ShowLibrary()
+    {
+        UpdateLibraryProgress();
+        RefreshLibrary();
+        LibraryPanel.Visibility = Visibility.Visible;
+        LibraryButton.IsChecked = true;
+        bool hasBook = _book is not null || _pagesOnly;
+        LibraryBackButton.Visibility = hasBook ? Visibility.Visible : Visibility.Collapsed;
+        LibraryBackText.Text = hasBook ? $"Back to {Truncate(BookTitle.Text, 28)}" : "Back";
+        Keyboard.ClearFocus();
+    }
+
+    /// <summary>Hides the library (only when a book is open, unless forced). Returns true if it was hidden.</summary>
+    private bool HideLibrary(bool force = false)
+    {
+        if (!force && _book is null && !_pagesOnly) return false;
+        LibraryPanel.Visibility = Visibility.Collapsed;
+        LibraryButton.IsChecked = false;
+        return true;
+    }
+
+    private static string Truncate(string s, int max) => s.Length <= max ? s : s[..(max - 1)] + "…";
+
+    private void OnLibraryFilterChanged(object sender, TextChangedEventArgs e)
+    {
+        LibraryFilterHint.Visibility = LibraryFilter.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        RefreshLibrary();
+    }
+
+    private void RefreshLibrary()
+    {
+        if (!_ready) return;
+        string filter = LibraryFilter.Text.Trim();
+        bool Match(LibraryEntry e) => filter.Length == 0 ||
+            e.Title.Contains(filter, StringComparison.CurrentCultureIgnoreCase) ||
+            Path.GetFileName(e.Path).Contains(filter, StringComparison.CurrentCultureIgnoreCase);
+        string? current = _book?.FilePath;
+
+        var recent = _library.Recent.Where(Match)
+            .Select(e => new LibraryCard(e, string.Equals(e.Path, current, StringComparison.OrdinalIgnoreCase))).ToList();
+        RecentList.ItemsSource = recent;
+        RecentHeader.Visibility = recent.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        bool hasFolder = _settings.LibraryFolder is not null;
+        const int maxShown = 400;
+        var all = hasFolder ? _library.FolderBooks.Where(Match).ToList() : new List<LibraryEntry>();
+        FolderList.ItemsSource = all.Take(maxShown)
+            .Select(e => new LibraryCard(e, string.Equals(e.Path, current, StringComparison.OrdinalIgnoreCase))).ToList();
+        FolderHeader.Visibility = hasFolder ? Visibility.Visible : Visibility.Collapsed;
+        FolderPathText.Text = _settings.LibraryFolder ?? "";
+        FolderStatus.Visibility = hasFolder ? Visibility.Visible : Visibility.Collapsed;
+        FolderStatus.Text = _scanningFolder ? "Looking for PDFs…"
+            : all.Count == 0 ? (filter.Length > 0 ? "No books match." : "No PDFs found in this folder.")
+            : all.Count > maxShown ? $"{all.Count} books · showing the first {maxShown}, type in Find a book to narrow it down"
+            : $"{all.Count} book{(all.Count == 1 ? "" : "s")}";
+
+        LibraryHero.Visibility = _library.Recent.Count == 0 && !hasFolder ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private async void OnBookCardClick(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is LibraryCard card) await OpenCardAsync(card);
+    }
+
+    private async Task OpenCardAsync(LibraryCard card)
+    {
+        if (card.IsMissing)
+        {
+            var answer = MessageBox.Show(this, $"This file can't be found any more:\n{card.Path}\n\nRemove it from the library?",
+                "PDF Reader", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            if (answer == MessageBoxResult.Yes)
+            {
+                _library.Remove(card.Path, alsoFromFolder: true);
+                _library.Save(_libraryPath);
+                RefreshLibrary();
+            }
+            return;
+        }
+        if (card.IsCurrent) { HideLibrary(); return; }
+        await OpenAsync(card.Path);
+    }
+
+    private static LibraryCard? CardOf(object sender) => (sender as FrameworkElement)?.DataContext as LibraryCard;
+
+    private async void OnCardOpenMenu(object sender, RoutedEventArgs e)
+    {
+        if (CardOf(sender) is { } card) await OpenCardAsync(card);
+    }
+
+    private void OnCardShowInFolderMenu(object sender, RoutedEventArgs e)
+    {
+        if (CardOf(sender) is not { } card) return;
+        try
+        {
+            if (File.Exists(card.Path))
+                System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{card.Path}\"");
+            else if (Path.GetDirectoryName(card.Path) is { } dir && Directory.Exists(dir))
+                System.Diagnostics.Process.Start("explorer.exe", $"\"{dir}\"");
+        }
+        catch { }
+    }
+
+    private void OnCardRemoveRecentMenu(object sender, RoutedEventArgs e)
+    {
+        if (CardOf(sender) is not { } card) return;
+        _library.Remove(card.Path, alsoFromFolder: false);
+        _library.Save(_libraryPath);
+        RefreshLibrary();
+    }
+
+    private void OnCardRemoveLibraryMenu(object sender, RoutedEventArgs e)
+    {
+        if (CardOf(sender) is not { } card) return;
+        _library.Remove(card.Path, alsoFromFolder: true);
+        _library.Save(_libraryPath);
+        RefreshLibrary();
+    }
+
+    private async void OnChooseFolderClick(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFolderDialog { Title = "Choose your books folder" };
+        if (_settings.LibraryFolder is { } current && Directory.Exists(current)) dialog.InitialDirectory = current;
+        if (dialog.ShowDialog(this) != true) return;
+        _settings.LibraryFolder = dialog.FolderName;
+        _settings.Save(_settingsPath);
+        await RescanFolderAsync();
+    }
+
+    private async void OnRefreshFolderClick(object sender, RoutedEventArgs e) => await RescanFolderAsync();
+
+    private void OnForgetFolderClick(object sender, RoutedEventArgs e)
+    {
+        _settings.LibraryFolder = null;
+        _settings.Save(_settingsPath);
+        _library.ClearFolder();
+        _library.Save(_libraryPath);
+        RefreshLibrary();
+    }
+
+    private async Task RescanFolderAsync()
+    {
+        if (_settings.LibraryFolder is not { } folder || _scanningFolder) return;
+        _scanningFolder = true;
+        RefreshLibrary();
+        try
+        {
+            var found = await Task.Run(() => Directory.Exists(folder) ? LibraryStore.ScanFolder(folder) : new List<string>());
+            _library.ApplyFolderScan(found);
+            _library.Save(_libraryPath);
+        }
+        finally
+        {
+            _scanningFolder = false;
+            RefreshLibrary();
+        }
+    }
+
+    // ===== Bookmarks & notes =======================================================================
+
+    private void RefreshBookmarks(Bookmark? select = null)
+    {
+        var items = _notes?.Items.Select(b =>
+        {
+            var item = new BookmarkItem(b);
+            item.Changed += () => { _notesSave.Stop(); _notesSave.Start(); };
+            return item;
+        }).ToList() ?? new List<BookmarkItem>();
+
+        BookmarksList.ItemsSource = items;
+        BookmarksEmpty.Visibility = items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        ExportNotesButton.IsEnabled = items.Count > 0;
+
+        var marked = new HashSet<int>(_notes?.Items.Select(b => b.Paragraph) ?? Enumerable.Empty<int>());
+        foreach (var p in _paragraphs) p.HasBookmark = marked.Contains(p.Model.Index);
+
+        if (_book is not null && _notes is not null)
+            PagesViewControl.SetBookmarks(_notes.Items
+                .Where(b => b.Paragraph >= 0 && b.Paragraph < _book.Paragraphs.Count)
+                .Select(b => (b.Paragraph, Math.Max(0, _book.Paragraphs[b.Paragraph].WordIndexAt(b.Char)))));
+        else
+            PagesViewControl.SetBookmarks(Array.Empty<(int, int)>());
+
+        if (select is not null && items.FirstOrDefault(i => i.Bookmark.Id == select.Id) is { } sel)
+        {
+            BookmarksList.SelectedItem = sel;
+            BookmarksList.ScrollIntoView(sel);
+        }
+    }
+
+    private void OnAddBookmarkClick(object sender, RoutedEventArgs e) => AddBookmarkHere(focusNote: false);
+
+    /// <summary>Bookmarks the cursor if there is one, otherwise the word being read.</summary>
+    private void AddBookmarkHere(bool focusNote)
+    {
+        if (_book is null) return;
+        var pos = _cursor is { } c
+            ? new ReadingPosition(c.Paragraph, _book.Paragraphs[c.Paragraph].Words[c.Word].Start)
+            : _narrator.Position;
+        AddBookmarkAt(pos, focusNote);
+    }
+
+    private void AddBookmarkAt(ReadingPosition pos, bool focusNote)
+    {
+        if (_book is null || _notes is null || _book.IsEmpty) return;
+        var b = _notes.Add(_book, pos);
+        _notes.Save(BookNotes.DefaultFolder);
+        RefreshBookmarks(select: b);
+        ShowSidebar("bookmarks");
+        ShowMessage($"Bookmarked page {b.Page}.");
+        if (focusNote) Dispatcher.InvokeAsync(() => FocusNoteBox(b), DispatcherPriority.Loaded);
+    }
+
+    private void FocusNoteBox(Bookmark b)
+    {
+        var item = (BookmarksList.ItemsSource as IEnumerable<BookmarkItem>)?.FirstOrDefault(i => i.Bookmark.Id == b.Id);
+        if (item is null || BookmarksList.ItemContainerGenerator.ContainerFromItem(item) is not DependencyObject container) return;
+        if (FindDescendant<TextBox>(container) is { } box)
+        {
+            box.Focus();
+            box.CaretIndex = box.Text.Length;
+        }
+    }
+
+    private void OnBookmarkClick(object sender, MouseButtonEventArgs e)
+    {
+        if (e.OriginalSource is not DependencyObject d) return;
+        if (FindAncestor<TextBox>(d) is not null || FindAncestor<Button>(d) is not null) return; // editing the note / deleting
+        if (FindAncestor<ListBoxItem>(d) is not { DataContext: BookmarkItem item } || _book is null) return;
+        var pos = item.Bookmark.Position;
+        if (pos.ParagraphIndex < 0 || pos.ParagraphIndex >= _book.Paragraphs.Count) return;
+        ClearCursor();
+        if (_narrator.State == NarrationState.Playing) _narrator.PlayFrom(pos);
+        else
+        {
+            _narrator.MoveTo(pos);
+            ShowMessage($"Bookmark on page {item.Bookmark.Page}. Press Play to read from here.");
+        }
+        ResumeFollowing();
+    }
+
+    private void OnDeleteBookmarkClick(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not BookmarkItem item || _notes is null) return;
+        _notes.Remove(item.Bookmark.Id);
+        _notes.Save(BookNotes.DefaultFolder);
+        RefreshBookmarks();
+    }
+
+    private void OnExportNotesClick(object sender, RoutedEventArgs e)
+    {
+        if (_book is null || _notes is null || _notes.Items.Count == 0) return;
+        var dialog = new SaveFileDialog
+        {
+            Title = "Export bookmarks and notes",
+            FileName = $"{_book.Title} - notes.md",
+            Filter = "Markdown (*.md)|*.md|Text (*.txt)|*.txt",
+            InitialDirectory = Path.GetDirectoryName(_book.FilePath),
+        };
+        if (dialog.ShowDialog(this) != true) return;
+        try
+        {
+            File.WriteAllText(dialog.FileName, _notes.ToMarkdown(_book.Title));
+            ShowMessage($"Saved {_notes.Items.Count} bookmark(s) to {Path.GetFileName(dialog.FileName)}.");
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, "Couldn't save the file.\n\n" + ex.Message, "PDF Reader", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    // ===== Right-click on a word =====================================================================
+
+    private void ShowWordMenu(int paragraphIndex, int wordIndex)
+    {
+        if (_book is null || paragraphIndex < 0 || paragraphIndex >= _book.Paragraphs.Count) return;
+        var para = _book.Paragraphs[paragraphIndex];
+        if (wordIndex < 0 || wordIndex >= para.Words.Count) return;
+        var pos = new ReadingPosition(paragraphIndex, para.Words[wordIndex].Start);
+
+        MenuItem Item(string header, Action action, string? gesture = null)
+        {
+            var mi = new MenuItem { Header = header, InputGestureText = gesture ?? "" };
+            mi.Click += (_, _) => action();
+            return mi;
+        }
+
+        var menu = new ContextMenu();
+        menu.Items.Add(Item("Read from here", () => { ClearCursor(); ResumeFollowing(); _narrator.PlayFrom(pos); }));
+        menu.Items.Add(new Separator());
+        menu.Items.Add(Item("Add bookmark", () => AddBookmarkAt(pos, focusNote: false), "Ctrl+D"));
+        menu.Items.Add(Item("Add note…", () => AddBookmarkAt(pos, focusNote: true)));
+        menu.Items.Add(new Separator());
+        menu.Items.Add(Item("Copy paragraph", () => { try { Clipboard.SetText(para.Text); ShowMessage("Paragraph copied."); } catch { } }));
+        menu.Placement = PlacementMode.MousePoint;
+        menu.IsOpen = true;
+    }
+
     // ===== Sidebar: Contents ======================================================================
 
     private void OnSidebarButtonClick(object sender, RoutedEventArgs e)
     {
-        if (SidebarButton.IsChecked == true) ShowSidebar(search: _settings.SidebarTab == "search");
+        if (SidebarButton.IsChecked == true) ShowSidebar(_settings.SidebarTab);
         else HideSidebar();
     }
 
-    private void OnContentsTabClick(object sender, RoutedEventArgs e) => ShowSidebar(search: false);
-    private void OnSearchTabClick(object sender, RoutedEventArgs e) => ShowSidebar(search: true);
+    private void OnContentsTabClick(object sender, RoutedEventArgs e) => ShowSidebar("contents");
+    private void OnSearchTabClick(object sender, RoutedEventArgs e) => ShowSidebar("search");
+    private void OnBookmarksTabClick(object sender, RoutedEventArgs e) => ShowSidebar("bookmarks");
 
-    private void ShowSidebar(bool search)
+    /// <summary>Opens the sidebar on a tab: "contents", "search" or "bookmarks".</summary>
+    private void ShowSidebar(string tab)
     {
+        if (tab is not ("contents" or "search" or "bookmarks")) tab = "contents";
         Sidebar.Visibility = Visibility.Visible;
         SidebarColumn.Width = new GridLength(300);
         SidebarButton.IsChecked = true;
-        ContentsTab.IsChecked = !search;
-        SearchTab.IsChecked = search;
-        ContentsPanel.Visibility = search ? Visibility.Collapsed : Visibility.Visible;
-        SearchPanel.Visibility = search ? Visibility.Visible : Visibility.Collapsed;
+        ContentsTab.IsChecked = tab == "contents";
+        SearchTab.IsChecked = tab == "search";
+        BookmarksTab.IsChecked = tab == "bookmarks";
+        ContentsPanel.Visibility = tab == "contents" ? Visibility.Visible : Visibility.Collapsed;
+        SearchPanel.Visibility = tab == "search" ? Visibility.Visible : Visibility.Collapsed;
+        BookmarksPanel.Visibility = tab == "bookmarks" ? Visibility.Visible : Visibility.Collapsed;
         _settings.SidebarOpen = true;
-        _settings.SidebarTab = search ? "search" : "contents";
-        if (search)
+        _settings.SidebarTab = tab;
+        if (tab == "search")
         {
             SearchBox.Focus();
             SearchBox.SelectAll();
@@ -834,7 +1181,7 @@ public partial class MainWindow : Window
         else
         {
             Keyboard.ClearFocus();
-            SyncContents(scroll: true);
+            if (tab == "contents") SyncContents(scroll: true);
         }
     }
 
@@ -1173,6 +1520,21 @@ public partial class MainWindow : Window
         if (_book is null) return;
         _settings.Remember(_book.FilePath, _narrator.Position);
         _settings.Save(_settingsPath);
+        UpdateLibraryProgress();
+    }
+
+    /// <summary>Stores where you are in the current book for its library card.</summary>
+    private void UpdateLibraryProgress()
+    {
+        if (_book is null) return;
+        var pos = _narrator.Position;
+        int i = Math.Clamp(pos.ParagraphIndex, 0, Math.Max(0, _book.Paragraphs.Count - 1));
+        if (_book.Paragraphs.Count > 0)
+        {
+            double progress = _book.Paragraphs.Count <= 1 ? 0 : (double)i / (_book.Paragraphs.Count - 1);
+            _library.UpdateProgress(_book.FilePath, _book.Paragraphs[i].PageNumber, progress);
+            _library.Save(_libraryPath);
+        }
     }
 
     private void Shutdown()
@@ -1182,6 +1544,9 @@ public partial class MainWindow : Window
         _settings.Save(_settingsPath);
         _narrator.Dispose();
         _renderer?.Dispose();
+        _notesSave.Stop();
+        _notes?.Save(BookNotes.DefaultFolder);
+        _library.Save(_libraryPath);
     }
 
     // ===== Visual tree helpers ===================================================================

@@ -143,6 +143,8 @@ public sealed class PagesView : Grid
 
     /// <summary>(paragraph index, word index, click count)</summary>
     public event Action<int, int, int>? WordClicked;
+    /// <summary>Right-click on a word: (paragraph index, word index); -1, -1 when not on a word.</summary>
+    public event Action<int, int>? WordRightClicked;
     /// <summary>The user scrolled by hand (so auto-follow should pause).</summary>
     public event Action? UserScrolled;
     public event Action<double>? ZoomChanged;
@@ -166,6 +168,7 @@ public sealed class PagesView : Grid
             var (w, h) = sizes[n - 1];
             var slot = new PageSlot(n, w, h) { Margin = new Thickness(0, 0, 0, Gap) };
             slot.MouseLeftButtonDown += OnSlotMouseDown;
+            slot.MouseRightButtonUp += OnSlotRightClick;
             _slots.Add(slot);
             _panel.Children.Add(slot);
         }
@@ -237,6 +240,7 @@ public sealed class PagesView : Grid
         foreach (var s in _slots) s.Release();
         foreach (var mark in new[] { _paragraphMark, _wordMark, _wordMark2, _cursorMark })
             (mark.Parent as Canvas)?.Children.Remove(mark);
+        _bookmarkMarks.Clear();
         _slots.Clear();
         _panel.Children.Clear();
         _tops = Array.Empty<double>();
@@ -295,6 +299,7 @@ public sealed class PagesView : Grid
             y += _slots[i].Height + Gap;
         }
         UpdateMarks();
+        PlaceBookmarkMarks();
         ScheduleRender();
     }
 
@@ -448,6 +453,64 @@ public sealed class PagesView : Grid
         else
             _scroller.ScrollToVerticalOffset(_scroller.VerticalOffset - e.Delta * 1.2);
         e.Handled = true;
+    }
+
+    private void OnSlotRightClick(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not PageSlot slot) return;
+        var hit = WordAt(slot, e.GetPosition(slot));
+        WordRightClicked?.Invoke(hit?.Para ?? -1, hit?.Word ?? -1);
+        e.Handled = true;
+    }
+
+    private (int Para, int Word)? WordAt(PageSlot slot, Point pos)
+    {
+        if (!_wordsByPage.TryGetValue(slot.PageNumber, out var words)) return null;
+        float px = (float)(pos.X / _zoom), py = (float)(pos.Y / _zoom);
+        (int Para, int Word)? best = null;
+        float bestDistance = 30;
+        foreach (var (para, word, box) in words)
+        {
+            if (IsSpokenParagraph is { } spoken && !spoken(para)) continue;
+            float d = box.DistanceTo(px, py);
+            if (d < bestDistance) { bestDistance = d; best = (para, word); }
+        }
+        return best;
+    }
+
+    // ---- bookmark markers ------------------------------------------------------------------------
+
+    private readonly List<(int Page, float Y, Shape Mark)> _bookmarkMarks = new();
+
+    /// <summary>Small ribbons in the left margin of the pages where bookmarks are.</summary>
+    public void SetBookmarks(IEnumerable<(int Paragraph, int Word)> bookmarks)
+    {
+        foreach (var (_, _, mark) in _bookmarkMarks) (mark.Parent as Canvas)?.Children.Remove(mark);
+        _bookmarkMarks.Clear();
+        foreach (var (para, word) in bookmarks)
+        {
+            if (!TryGetWord(para, word, out var p, out var g)) continue;
+            var ribbon = new System.Windows.Shapes.Path
+            {
+                Data = Geometry.Parse("M0,0 L12,0 L12,20 L6,15 L0,20 Z"),
+                Fill = (Brush)FindResource("AccentBrush"),
+                IsHitTestVisible = false,
+                ToolTip = null,
+            };
+            Panel.SetZIndex(ribbon, 3);
+            _slots[p.PageNumber - 1].Overlay.Children.Add(ribbon);
+            _bookmarkMarks.Add((p.PageNumber, g.Box.Y, ribbon));
+        }
+        PlaceBookmarkMarks();
+    }
+
+    private void PlaceBookmarkMarks()
+    {
+        foreach (var (_, y, mark) in _bookmarkMarks)
+        {
+            Canvas.SetLeft(mark, 6);
+            Canvas.SetTop(mark, Math.Max(0, y * _zoom - 2));
+        }
     }
 
     private void OnSlotMouseDown(object sender, MouseButtonEventArgs e)

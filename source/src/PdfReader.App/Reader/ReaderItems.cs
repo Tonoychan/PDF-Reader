@@ -31,6 +31,11 @@ public sealed class ParagraphItem : INotifyPropertyChanged
     public Paragraph Model { get; }
     public ParagraphKind Kind => Model.Kind;
 
+    private bool _hasBookmark;
+
+    /// <summary>A bookmark is in this paragraph (the text view shows a marker).</summary>
+    public bool HasBookmark { get => _hasBookmark; set => Set(ref _hasBookmark, value); }
+
     /// <summary>True when the reading options skip this paragraph (shown dimmed).</summary>
     public bool IsSkipped { get => _isSkipped; set => Set(ref _isSkipped, value); }
 
@@ -112,6 +117,16 @@ public sealed class MultiplyConverter : System.Windows.Data.IValueConverter
             System.Globalization.CultureInfo.InvariantCulture, out var f) ? f : 1;
         return value is double d ? d * factor : value;
     }
+
+    public object ConvertBack(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture) =>
+        throw new NotSupportedException();
+}
+
+/// <summary>Visible when the bound text is empty (for "Add a note…" placeholders).</summary>
+public sealed class EmptyToVisibleConverter : System.Windows.Data.IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture) =>
+        string.IsNullOrEmpty(value as string) ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
 
     public object ConvertBack(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture) =>
         throw new NotSupportedException();

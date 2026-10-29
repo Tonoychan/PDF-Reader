@@ -2,6 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:r="clr-namespace:PdfReader.App.Reader"
+        xmlns:lib="clr-namespace:PdfReader.App.Library"
         Title="PDF Reader"
         Width="1180" Height="860" MinWidth="820" MinHeight="500"
         WindowStartupLocation="CenterScreen"
@@ -14,6 +15,55 @@
 
     <Window.Resources>
         <r:MultiplyConverter x:Key="Multiply" />
+        <r:EmptyToVisibleConverter x:Key="EmptyToVisible" />
+        <BooleanToVisibilityConverter x:Key="BoolToVisible" />
+
+        <!-- A book card in the library -->
+        <DataTemplate x:Key="BookCardTemplate" DataType="{x:Type lib:LibraryCard}">
+            <Button Width="196" Margin="8,0,8,18" Padding="0" Click="OnBookCardClick" Tag="{Binding}" Cursor="Hand" Focusable="False"
+                    ToolTip="{Binding Path}">
+                <Button.Template>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="Transparent" CornerRadius="12" Padding="10">
+                            <ContentPresenter />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource HoverBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Button.Template>
+                <Button.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem Header="Open" Click="OnCardOpenMenu" />
+                        <MenuItem Header="Show in folder" Click="OnCardShowInFolderMenu" />
+                        <Separator />
+                        <MenuItem Header="Remove from Continue reading" Click="OnCardRemoveRecentMenu" />
+                        <MenuItem Header="Remove from library" Click="OnCardRemoveLibraryMenu" />
+                    </ContextMenu>
+                </Button.ContextMenu>
+                <StackPanel>
+                    <Border Height="236" CornerRadius="6" Background="White" BorderBrush="{StaticResource ChromeBorderBrush}" BorderThickness="1" ClipToBounds="True">
+                        <Border.Effect>
+                            <DropShadowEffect BlurRadius="10" ShadowDepth="1" Opacity="0.12" />
+                        </Border.Effect>
+                        <Grid>
+                            <TextBlock Text="{Binding Initial}" FontSize="54" FontWeight="SemiBold" Foreground="{StaticResource ChromeBorderBrush}"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            <Image Source="{Binding Cover}" Stretch="UniformToFill" VerticalAlignment="Top" RenderOptions.BitmapScalingMode="HighQuality" />
+                        </Grid>
+                    </Border>
+                    <ProgressBar Height="4" Margin="0,8,0,0" Minimum="0" Maximum="100" Value="{Binding ProgressPercent, Mode=OneWay}"
+                                 Foreground="{StaticResource AccentBrush}" Background="{StaticResource ChromeBorderBrush}" BorderThickness="0"
+                                 Visibility="{Binding ShowProgress, Converter={StaticResource BoolToVisible}}" />
+                    <TextBlock Text="{Binding Title}" FontSize="13.5" FontWeight="SemiBold" Foreground="{StaticResource InkBrush}" Margin="0,8,0,0"
+                               TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxHeight="38" />
+                    <TextBlock Text="{Binding Subtitle}" FontSize="12" Foreground="{StaticResource MutedInkBrush}" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{Binding LastRead}" FontSize="11.5" Foreground="{StaticResource MutedInkBrush}" Margin="0,1,0,0" TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+            </Button>
+        </DataTemplate>
     </Window.Resources>
 
     <Grid>
@@ -27,6 +77,13 @@
         <Border Grid.Row="0" Background="{StaticResource ChromeBrush}" BorderBrush="{StaticResource ChromeBorderBrush}"
                 BorderThickness="0,0,0,1" Padding="14,10">
             <DockPanel LastChildFill="True">
+                <ToggleButton x:Name="LibraryButton" DockPanel.Dock="Left" Style="{StaticResource ToolToggle}" Margin="0,0,8,0"
+                              Click="OnLibraryButtonClick" ToolTip="Your books (Ctrl+L)">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE8F1;" FontSize="13" Margin="0,0,7,0" VerticalAlignment="Center" />
+                        <TextBlock Text="Library" VerticalAlignment="Center" />
+                    </StackPanel>
+                </ToggleButton>
                 <Button x:Name="OpenButton" DockPanel.Dock="Left" Style="{StaticResource AccentButton}"
                         Click="OnOpenClick" ToolTip="Open a PDF (Ctrl+O)">
                     <StackPanel Orientation="Horizontal">
@@ -129,6 +186,7 @@
                             <StackPanel Orientation="Horizontal">
                                 <ToggleButton x:Name="ContentsTab" Style="{StaticResource ToolToggle}" Padding="14,5" Content="Contents" Click="OnContentsTabClick" />
                                 <ToggleButton x:Name="SearchTab" Style="{StaticResource ToolToggle}" Padding="14,5" Content="Search" Click="OnSearchTabClick" />
+                                <ToggleButton x:Name="BookmarksTab" Style="{StaticResource ToolToggle}" Padding="14,5" Content="Bookmarks" Click="OnBookmarksTabClick" />
                             </StackPanel>
                         </Border>
                     </Border>
@@ -161,6 +219,49 @@
                                        Style="{StaticResource ChromeText}" VerticalAlignment="Top"
                                        Text="This book has no contents list or headings to show." />
                         </Grid>
+
+                        <!-- Bookmarks & notes -->
+                        <DockPanel x:Name="BookmarksPanel" Visibility="Collapsed">
+                            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="12,4,12,8">
+                                <Button Style="{StaticResource AccentButton}" Padding="12,6" Click="OnAddBookmarkClick" ToolTip="Bookmark the word being read, or the cursor (Ctrl+D)">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE710;" FontSize="11" Margin="0,0,6,0" VerticalAlignment="Center" />
+                                        <TextBlock Text="Add bookmark" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </Button>
+                                <Button x:Name="ExportNotesButton" Style="{StaticResource ToolButton}" Padding="12,6" Margin="6,0,0,0" Content="Export…"
+                                        Click="OnExportNotesClick" ToolTip="Save all bookmarks and notes as a Markdown file" />
+                            </StackPanel>
+                            <TextBlock x:Name="BookmarksEmpty" DockPanel.Dock="Top" Margin="16,4,16,0" TextWrapping="Wrap" Style="{StaticResource ChromeText}" FontSize="12.5"
+                                       Text="No bookmarks yet. Use Add bookmark (Ctrl+D), or right-click a word and choose Add bookmark or Add note." />
+                            <ListBox x:Name="BookmarksList" BorderThickness="0" Background="Transparent" Padding="0,0,0,10"
+                                     ItemContainerStyle="{StaticResource SidebarListItem}"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                     PreviewMouseLeftButtonUp="OnBookmarkClick">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type lib:BookmarkItem}">
+                                        <StackPanel>
+                                            <DockPanel>
+                                                <Button DockPanel.Dock="Right" Style="{StaticResource ToolButton}" Padding="6,2" FontFamily="{StaticResource IconFont}"
+                                                        FontSize="10" Content="&#xE711;" ToolTip="Delete bookmark" Click="OnDeleteBookmarkClick" Tag="{Binding}" />
+                                                <TextBlock Text="{Binding PageLabel}" FontSize="11.5" FontWeight="SemiBold" Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" />
+                                            </DockPanel>
+                                            <TextBlock Text="{Binding Snippet}" TextWrapping="Wrap" FontSize="12.5" Foreground="{StaticResource MutedInkBrush}" Margin="0,2,0,6" />
+                                            <Grid>
+                                                <TextBox Text="{Binding Note, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource FieldBox}" FontSize="13"
+                                                         AcceptsReturn="True" TextWrapping="Wrap" MinHeight="30" Padding="6,4" Tag="{Binding}" />
+                                                <TextBlock Text="Add a note…" IsHitTestVisible="False" Margin="9,0,0,0" VerticalAlignment="Center"
+                                                           Style="{StaticResource ChromeText}" FontSize="12.5">
+                                                    <TextBlock.Visibility>
+                                                        <Binding Path="Note" Converter="{StaticResource EmptyToVisible}" />
+                                                    </TextBlock.Visibility>
+                                                </TextBlock>
+                                            </Grid>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </DockPanel>
 
                         <!-- Search -->
                         <DockPanel x:Name="SearchPanel" Visibility="Collapsed">
@@ -250,7 +351,11 @@
                                 <Setter TargetName="Text" Property="Foreground" Value="{StaticResource MutedInkBrush}" />
                                 <Setter TargetName="Bd" Property="Padding" Value="20,2" />
                             </DataTrigger>
-                            <DataTrigger Binding="{Binding IsSkipped}" Value="True">
+                            <DataTrigger Binding="{Binding HasBookmark}" Value="True">
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                            <Setter TargetName="Bd" Property="BorderThickness" Value="3,0,0,0" />
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding IsSkipped}" Value="True">
                                 <Setter TargetName="Bd" Property="Opacity" Value="0.8" />
                             </DataTrigger>
                             <DataTrigger Binding="{Binding IsActive}" Value="True">
@@ -324,6 +429,75 @@
             </Grid>
         </Grid>
 
+        <!-- ===== Library (home screen) ===== -->
+        <Grid x:Name="LibraryPanel" Grid.Row="1" Visibility="Collapsed" Background="{StaticResource PaperBrush}">
+            <ScrollViewer x:Name="LibraryScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Focusable="False">
+                <StackPanel Margin="44,28,44,44" MaxWidth="1500">
+                    <DockPanel Margin="8,0,8,18">
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Grid Width="240" Margin="0,0,10,0">
+                                <TextBox x:Name="LibraryFilter" Style="{StaticResource FieldBox}" TextChanged="OnLibraryFilterChanged" />
+                                <TextBlock x:Name="LibraryFilterHint" Text="Find a book…" IsHitTestVisible="False" Margin="11,0,0,0"
+                                           VerticalAlignment="Center" Style="{StaticResource ChromeText}" />
+                            </Grid>
+                            <Button x:Name="LibraryBackButton" Style="{StaticResource AccentButton}" Padding="14,7" Click="OnLibraryBackClick" Visibility="Collapsed">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE72B;" FontSize="11" Margin="0,0,7,0" VerticalAlignment="Center" />
+                                    <TextBlock x:Name="LibraryBackText" Text="Back to book" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+                        <TextBlock Text="Library" FontSize="28" FontWeight="SemiBold" Foreground="{StaticResource InkBrush}" VerticalAlignment="Center" />
+                    </DockPanel>
+
+                    <!-- Hero when there's nothing yet -->
+                    <Border x:Name="LibraryHero" Background="{StaticResource ChromeBrush}" BorderBrush="{StaticResource ChromeBorderBrush}" BorderThickness="1"
+                            CornerRadius="14" Padding="34,30" Margin="8,0,8,24">
+                        <StackPanel>
+                            <TextBlock Text="Open a PDF to start reading" FontSize="20" FontWeight="SemiBold" Foreground="{StaticResource InkBrush}" />
+                            <TextBlock Text="Books you open appear here with your progress. You can also pick a books folder and every PDF in it is listed below."
+                                       TextWrapping="Wrap" FontSize="14" Foreground="{StaticResource MutedInkBrush}" Margin="0,6,0,18" />
+                            <StackPanel Orientation="Horizontal">
+                                <Button Style="{StaticResource AccentButton}" Padding="18,9" Click="OnOpenClick" Content="Open a PDF…" />
+                                <Button Style="{StaticResource ToolButton}" Padding="16,9" Margin="8,0,0,0" Click="OnChooseFolderClick" Content="Choose books folder…" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <TextBlock x:Name="RecentHeader" Text="Continue reading" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource InkBrush}" Margin="8,0,8,10" />
+                    <ItemsControl x:Name="RecentList" ItemTemplate="{StaticResource BookCardTemplate}" Focusable="False">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                    </ItemsControl>
+
+                    <DockPanel x:Name="FolderHeader" Margin="8,26,8,10">
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                            <Button x:Name="RefreshFolderButton" Style="{StaticResource ToolButton}" Padding="10,5" Click="OnRefreshFolderClick" ToolTip="Look for new PDFs">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE72C;" FontSize="11" Margin="0,0,6,0" VerticalAlignment="Center" />
+                                    <TextBlock Text="Refresh" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
+                            <Button Style="{StaticResource ToolButton}" Padding="10,5" Margin="4,0,0,0" Click="OnChooseFolderClick" Content="Change folder…" />
+                            <Button x:Name="ForgetFolderButton" Style="{StaticResource ToolButton}" Padding="10,5" Margin="4,0,0,0" Click="OnForgetFolderClick"
+                                    Content="Stop watching" ToolTip="Stop listing this folder's books" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="Books folder" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource InkBrush}" />
+                            <TextBlock x:Name="FolderPathText" Style="{StaticResource ChromeText}" Margin="12,2,0,0" TextTrimming="CharacterEllipsis" MaxWidth="520" />
+                        </StackPanel>
+                    </DockPanel>
+                    <TextBlock x:Name="FolderStatus" Style="{StaticResource ChromeText}" Margin="8,0,8,10" />
+                    <ItemsControl x:Name="FolderList" ItemTemplate="{StaticResource BookCardTemplate}" Focusable="False">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                    </ItemsControl>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+
         <!-- ===== Transport bar ===== -->
         <Border Grid.Row="2" Background="{StaticResource ChromeBrush}" BorderBrush="{StaticResource ChromeBorderBrush}"
                 BorderThickness="0,1,0,0" Padding="16,8">
@@ -349,6 +523,11 @@
                 </StackPanel>
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <Button x:Name="BookmarkButton" Style="{StaticResource ToolButton}" Click="OnAddBookmarkClick" Margin="0,0,2,0" Padding="9,7"
+                            ToolTip="Add a bookmark here (Ctrl+D)">
+                        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE8A4;" FontSize="14"
+                                   VerticalAlignment="Center" Foreground="{StaticResource AccentBrush}" />
+                    </Button>
                     <Button x:Name="FromCursorButton" Style="{StaticResource ToolButton}" Click="OnFromCursorClick"
                             ToolTip="Start reading from the word you clicked (or double-click a word)">
                         <StackPanel Orientation="Horizontal">

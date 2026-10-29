@@ -24,6 +24,8 @@ public sealed class AppSettings
     public double? PageZoom { get; set; }
     public ReadingOptions Reading { get; set; } = new();
     public bool SidebarOpen { get; set; }
+    /// <summary>Folder whose PDFs are listed in the library (subfolders included).</summary>
+    public string? LibraryFolder { get; set; }
     /// <summary>"contents" or "search".</summary>
     public string SidebarTab { get; set; } = "contents";
     public Dictionary<string, SavedPosition> Positions { get; set; } = new(StringComparer.OrdinalIgnoreCase);
