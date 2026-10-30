@@ -147,14 +147,25 @@
                                 <CheckBox x:Name="SkipCaptionsCheck" Content="Picture captions" Margin="0,4" Checked="OnReadingOptionChanged" Unchecked="OnReadingOptionChanged" />
                                 <Rectangle Height="1" Fill="{StaticResource ChromeBorderBrush}" Margin="0,10" />
                                 <CheckBox x:Name="PauseHeadingsCheck" Content="Pause briefly around headings" Margin="0,4" Checked="OnReadingOptionChanged" Unchecked="OnReadingOptionChanged" />
+                                <Rectangle Height="1" Fill="{StaticResource ChromeBorderBrush}" Margin="0,10" />
+                                <TextBlock Text="Pronunciation" FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource InkBrush}" Margin="0,0,0,6" />
+                                <CheckBox x:Name="SmartPronunciationCheck" Margin="0,4" Checked="OnPronunciationChanged" Unchecked="OnPronunciationChanged">
+                                    <TextBlock TextWrapping="Wrap" Text="Read abbreviations, code names (AudioSource), file types (.wav) and links naturally" />
+                                </CheckBox>
+                                <Button Style="{StaticResource ToolButton}" HorizontalAlignment="Left" Margin="-8,4,0,0" Click="OnWordListClick"
+                                        Content="My word list…" ToolTip="Tell it how to say particular words" />
                                 <TextBlock Text="Text inside pictures is never read." Style="{StaticResource ChromeText}" FontSize="12" Margin="0,10,0,0" TextWrapping="Wrap" />
                             </StackPanel>
                         </Border>
                     </Popup>
 
                     <TextBlock Style="{StaticResource ChromeText}" Text="Voice" Margin="4,0,8,0" />
-                    <ComboBox x:Name="VoiceBox" Width="220" VerticalAlignment="Center" Padding="8,5"
-                              SelectionChanged="OnVoiceChanged" ToolTip="Windows voices installed on this PC" />
+                    <ComboBox x:Name="VoiceBox" Width="230" VerticalAlignment="Center" Padding="8,5"
+                              SelectionChanged="OnVoiceChanged" ToolTip="Natural voices and Windows voices installed on this PC" />
+                    <Button x:Name="VoicesButton" Style="{StaticResource ToolButton}" Padding="9,6" Margin="4,0,0,0" Click="OnVoicesClick"
+                            ToolTip="Get natural voices">
+                        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE896;" FontSize="13" VerticalAlignment="Center" />
+                    </Button>
                     <TextBlock Style="{StaticResource ChromeText}" Text="Speed" Margin="16,0,8,0" />
                     <Slider x:Name="SpeedSlider" Width="110" VerticalAlignment="Center"
                             Minimum="0.5" Maximum="2.5" Value="1" TickFrequency="0.1" IsSnapToTickEnabled="True"

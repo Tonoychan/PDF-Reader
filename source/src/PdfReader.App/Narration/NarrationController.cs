@@ -16,6 +16,7 @@ public sealed class NarrationController : IDisposable
     private readonly Dispatcher _dispatcher;
     private readonly OneCoreSpeechEngine? _oneCore;
     private readonly SapiSpeechEngine? _sapi;
+    private readonly PiperSpeechEngine? _piper;
 
     private BookDocument? _book;
     private ReadingPlan? _plan;
@@ -23,6 +24,7 @@ public sealed class NarrationController : IDisposable
     private CancellationTokenSource _cts = new();
     private SpeechChunk? _nextChunk;
     private Task<IPreparedSpeech>? _nextPrepared;
+    private SpeechInput? _nextInput;
     private VoiceOption? _voice;
     private double _rate = 1.0;
     private Func<Paragraph, bool> _isSpoken = _ => true;
@@ -36,8 +38,24 @@ public sealed class NarrationController : IDisposable
         _dispatcher = dispatcher;
         _oneCore = OneCoreSpeechEngine.TryCreate();
         _sapi = SapiSpeechEngine.TryCreate();
+        try { _piper = new PiperSpeechEngine(); } catch { _piper = null; }
+        RefreshVoices();
+        DefaultVoiceKey = _oneCore?.DefaultVoiceKey ?? Voices.FirstOrDefault()?.Key;
+    }
 
+    /// <summary>Natural (Piper) voices first, then the Windows voices.</summary>
+    public IReadOnlyList<VoiceOption> Voices { get; private set; } = Array.Empty<VoiceOption>();
+    public string? DefaultVoiceKey { get; }
+
+    /// <summary>How text is turned into what is said (abbreviations, code names, the user's word list).</summary>
+    public Pronouncer Pronouncer { get; } = new();
+
+    /// <summary>Re-reads the installed voices (after downloading or removing a natural voice).</summary>
+    public void RefreshVoices()
+    {
+        _piper?.Refresh();
         var voices = new List<VoiceOption>();
+        if (_piper is not null) voices.AddRange(_piper.Voices);
         if (_oneCore is not null) voices.AddRange(_oneCore.Voices.OrderBy(v => v.Name));
         if (_sapi is not null)
         {
@@ -46,11 +64,10 @@ public sealed class NarrationController : IDisposable
             voices.AddRange(_sapi.Voices.Where(v => !modernNames.Contains(v.Name)).OrderBy(v => v.Name));
         }
         Voices = voices;
-        DefaultVoiceKey = _oneCore?.DefaultVoiceKey ?? voices.FirstOrDefault()?.Key;
     }
 
-    public IReadOnlyList<VoiceOption> Voices { get; }
-    public string? DefaultVoiceKey { get; }
+    /// <summary>Pronunciation settings changed: carry on from the current word with the new rules.</summary>
+    public void PronunciationChanged() => RestartIfPlaying();
 
     public NarrationState State { get; private set; } = NarrationState.Idle;
 
@@ -58,8 +75,8 @@ public sealed class NarrationController : IDisposable
     public ReadingPosition Position { get; private set; } = ReadingPosition.Start;
 
     public event Action? StateChanged;
-    /// <summary>The highlighted word moved: (paragraph index, word index).</summary>
-    public event Action<int, int>? WordChanged;
+    /// <summary>The highlight moved: (paragraph index, first word, last word). One word for Windows voices, a sentence for natural voices.</summary>
+    public event Action<int, int, int>? HighlightChanged;
     public event Action? ReachedEnd;
     public event Action<string>? Error;
 
@@ -180,9 +197,10 @@ public sealed class NarrationController : IDisposable
         var ct = _cts.Token;
 
         IPreparedSpeech prepared;
+        var input = (preparedTask is not null ? _currentInputForNext : null) ?? SpeechInput.Build(_plan.TextOf(chunk), Pronouncer);
         try
         {
-            prepared = await (preparedTask ?? engine.PrepareAsync(_plan.TextOf(chunk), _voice, _rate, ct));
+            prepared = await (preparedTask ?? engine.PrepareAsync(input, _voice, _rate, ct));
         }
         catch (OperationCanceledException) { return; }
         catch (Exception ex)
@@ -199,11 +217,13 @@ public sealed class NarrationController : IDisposable
 
         // Prepare the following chunk while this one plays.
         _nextChunk = _plan.After(chunk);
-        _nextPrepared = _nextChunk is { } next ? engine.PrepareAsync(_plan.TextOf(next), _voice, _rate, ct) : null;
+        _nextInput = _nextChunk is { } next ? SpeechInput.Build(_plan.TextOf(next), Pronouncer) : null;
+        _nextPrepared = _nextChunk is not null && _nextInput is not null ? engine.PrepareAsync(_nextInput, _voice, _rate, ct) : null;
 
         engine.Play(prepared, new SpeechCallbacks
         {
-            OnWord = local => _dispatcher.InvokeAsync(() => OnWord(gen, chunk, local)),
+            OnWord = spoken => _dispatcher.InvokeAsync(() => OnWord(gen, chunk, input.Spoken.ToOriginal(spoken))),
+            OnSentence = i => _dispatcher.InvokeAsync(() => OnSentence(gen, chunk, input, i)),
             OnFinished = () => _dispatcher.InvokeAsync(() => OnChunkFinished(gen)),
             OnError = ex => _dispatcher.InvokeAsync(() => { if (gen == _generation) Fail("Speech failed: " + ex.Message); }),
         });
@@ -219,8 +239,23 @@ public sealed class NarrationController : IDisposable
         int word = para.WordIndexAt(abs);
         if (word < 0) return;
         Position = new ReadingPosition(chunk.ParagraphIndex, para.Words[word].Start);
-        WordChanged?.Invoke(chunk.ParagraphIndex, word);
+        HighlightChanged?.Invoke(chunk.ParagraphIndex, word, word);
     }
+
+    /// <summary>A natural voice started a sentence: highlight all of it.</summary>
+    private void OnSentence(int gen, SpeechChunk chunk, SpeechInput input, int index)
+    {
+        if (gen != _generation || _book is null || index < 0 || index >= input.Sentences.Count) return;
+        var para = _book.Paragraphs[chunk.ParagraphIndex];
+        var seg = input.Sentences[index];
+        int first = para.WordIndexAt(chunk.Start + seg.OriginalStart);
+        int last = para.WordIndexAt(Math.Max(chunk.Start + seg.OriginalStart, chunk.Start + seg.OriginalStart + seg.OriginalLength - 1));
+        if (first < 0) return;
+        Position = new ReadingPosition(chunk.ParagraphIndex, para.Words[first].Start);
+        HighlightChanged?.Invoke(chunk.ParagraphIndex, first, Math.Max(first, last));
+    }
+
+    private SpeechInput? _currentInputForNext;
 
     private SpeechChunk? _currentChunk;
 
@@ -230,8 +265,10 @@ public sealed class NarrationController : IDisposable
         if (_nextChunk is { } next)
         {
             var prepared = _nextPrepared;
+            _currentInputForNext = _nextInput;
             _nextChunk = null;
             _nextPrepared = null;
+            _nextInput = null;
 
             if (PauseAroundHeadings && _book is not null && _currentChunk is { } done && done.ParagraphIndex != next.ParagraphIndex &&
                 (_book.Paragraphs[done.ParagraphIndex].Kind == ParagraphKind.Heading || _book.Paragraphs[next.ParagraphIndex].Kind == ParagraphKind.Heading))
@@ -263,6 +300,7 @@ public sealed class NarrationController : IDisposable
     {
         VoiceEngineKind.OneCore => _oneCore,
         VoiceEngineKind.Sapi => _sapi,
+        VoiceEngineKind.Piper => _piper,
         _ => null,
     };
 
@@ -276,10 +314,13 @@ public sealed class NarrationController : IDisposable
         var leftover = _nextPrepared;
         _nextPrepared = null;
         _nextChunk = null;
+        _nextInput = null;
+        _currentInputForNext = null;
         leftover?.ContinueWith(t => { if (t.Status == TaskStatus.RanToCompletion) t.Result.Dispose(); }, TaskScheduler.Default);
 
         _oneCore?.Stop();
         _sapi?.Stop();
+        _piper?.Stop();
     }
 
     private ReadingPosition Clamp(ReadingPosition pos)
@@ -294,7 +335,7 @@ public sealed class NarrationController : IDisposable
         if (_book is null || _book.IsEmpty) return;
         var para = _book.Paragraphs[pos.ParagraphIndex];
         int word = para.WordIndexAt(pos.CharOffset);
-        if (word >= 0) WordChanged?.Invoke(pos.ParagraphIndex, word);
+        if (word >= 0) HighlightChanged?.Invoke(pos.ParagraphIndex, word, word);
     }
 
     private void SetState(NarrationState state)
@@ -316,5 +357,6 @@ public sealed class NarrationController : IDisposable
         CancelAll();
         _oneCore?.Dispose();
         _sapi?.Dispose();
+        _piper?.Dispose();
     }
 }

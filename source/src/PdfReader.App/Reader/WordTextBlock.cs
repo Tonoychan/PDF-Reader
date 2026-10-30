@@ -41,6 +41,7 @@ public sealed class WordTextBlock : TextBlock
     private Run[] _wordRuns = Array.Empty<Run>();
     private readonly Dictionary<Run, int> _runToWord = new();
     private int _shownReading = -1;
+    private int _shownReadingEnd = -1;
     private int _shownCursor = -1;
 
     public WordTextBlock()
@@ -81,7 +82,7 @@ public sealed class WordTextBlock : TextBlock
 
     private void OnItemPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName is nameof(ParagraphItem.ReadingWord) or nameof(ParagraphItem.CursorWord))
+        if (e.PropertyName is nameof(ParagraphItem.ReadingWord) or nameof(ParagraphItem.ReadingWordEnd) or nameof(ParagraphItem.CursorWord))
             ApplyHighlights();
     }
 
@@ -89,7 +90,7 @@ public sealed class WordTextBlock : TextBlock
     {
         Inlines.Clear();
         _runToWord.Clear();
-        _shownReading = _shownCursor = -1;
+        _shownReading = _shownReadingEnd = _shownCursor = -1;
         var item = Item;
         if (item is null) { _wordRuns = Array.Empty<Run>(); return; }
 
@@ -121,25 +122,31 @@ public sealed class WordTextBlock : TextBlock
     {
         var item = Item;
         int reading = item?.ReadingWord ?? -1;
+        int readingEnd = reading < 0 ? -1 : Math.Max(reading, item?.ReadingWordEnd ?? reading);
         int cursor = item?.CursorWord ?? -1;
-        if (reading == _shownReading && cursor == _shownCursor) return;
+        if (reading == _shownReading && readingEnd == _shownReadingEnd && cursor == _shownCursor) return;
 
-        int oldReading = _shownReading, oldCursor = _shownCursor;
+        int oldStart = _shownReading, oldEnd = _shownReadingEnd, oldCursor = _shownCursor;
         _shownReading = reading;
+        _shownReadingEnd = readingEnd;
         _shownCursor = cursor;
-        StyleWord(oldReading);
+        for (int i = oldStart; i <= oldEnd && i >= 0; i++) StyleWord(i);
         StyleWord(oldCursor);
-        StyleWord(reading);
+        for (int i = reading; i <= readingEnd && i >= 0; i++) StyleWord(i);
         StyleWord(cursor);
     }
+
+    private bool IsReading(int index) => _shownReading >= 0 && index >= _shownReading && index <= _shownReadingEnd;
 
     private void StyleWord(int index)
     {
         if (index < 0 || index >= _wordRuns.Length) return;
         var run = _wordRuns[index];
-        if (index == _shownReading)
+        if (IsReading(index))
         {
-            run.Background = (Brush)FindResource("ReadingWordBrush");
+            // A whole sentence (natural voices) gets a softer colour than a single word.
+            bool sentence = _shownReadingEnd > _shownReading;
+            run.Background = (Brush)FindResource(sentence ? "ReadingSentenceBrush" : "ReadingWordBrush");
             run.Foreground = (Brush)FindResource("ReadingWordTextBrush");
         }
         else
@@ -151,11 +158,30 @@ public sealed class WordTextBlock : TextBlock
         if (index == _shownCursor)
         {
             run.TextDecorations = CursorDecoration();
-            if (index != _shownReading) run.Background = (Brush)FindResource("CursorWordBrush");
+            if (!IsReading(index)) run.Background = (Brush)FindResource("CursorWordBrush");
+        }
+        else if (IsReading(index) && _shownReadingEnd > _shownReading)
+        {
+            run.TextDecorations = SentenceDecoration; // stays visible on warm (Night light) screens
         }
         else
         {
             run.TextDecorations = null;
+        }
+    }
+
+    private static TextDecorationCollection? _sentenceDecoration;
+
+    private static TextDecorationCollection SentenceDecoration
+    {
+        get
+        {
+            if (_sentenceDecoration is not null) return _sentenceDecoration;
+            var pen = new Pen(new SolidColorBrush(Color.FromRgb(0xE0, 0x9A, 0x00)), 2);
+            pen.Freeze();
+            var deco = new TextDecorationCollection { new TextDecoration(TextDecorationLocation.Underline, pen, 2, TextDecorationUnit.FontRecommended, TextDecorationUnit.Pixel) };
+            deco.Freeze();
+            return _sentenceDecoration = deco;
         }
     }
 

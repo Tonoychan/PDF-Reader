@@ -37,7 +37,10 @@ public sealed class PdfPageRenderer : IDisposable
         BoxF? region = null, float pageWidth = 0, float pageHeight = 0)
     {
         if (_disposed || pageNumber < 1 || pageNumber > PageCount || pixelWidth < 8) return null;
-        await _lock.WaitAsync(ct).ConfigureAwait(false);
+        // Cancelled while waiting for another page to finish: nothing to draw (and nothing to release).
+        try { await _lock.WaitAsync(ct).ConfigureAwait(false); }
+        catch (OperationCanceledException) { return null; }
+        catch (ObjectDisposedException) { return null; }
         try
         {
             ct.ThrowIfCancellationRequested();

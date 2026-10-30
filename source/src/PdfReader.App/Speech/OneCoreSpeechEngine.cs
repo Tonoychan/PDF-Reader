@@ -1,3 +1,4 @@
+using PdfReader.Core;
 using global::Windows.Foundation.Collections;
 using global::Windows.Media.Core;
 using global::Windows.Media.Playback;
@@ -72,8 +73,9 @@ public sealed class OneCoreSpeechEngine : ISpeechEngine
         }
     }
 
-    public async Task<IPreparedSpeech> PrepareAsync(string text, VoiceOption voice, double rate, CancellationToken ct)
+    public async Task<IPreparedSpeech> PrepareAsync(SpeechInput input, VoiceOption voice, double rate, CancellationToken ct)
     {
+        string text = input.Text;
         await _synthLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {

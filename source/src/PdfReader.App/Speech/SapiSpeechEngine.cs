@@ -1,3 +1,4 @@
+using PdfReader.Core;
 using Sapi = System.Speech.Synthesis;
 
 namespace PdfReader.App.Speech;
@@ -46,8 +47,8 @@ public sealed class SapiSpeechEngine : ISpeechEngine
         }
     }
 
-    public Task<IPreparedSpeech> PrepareAsync(string text, VoiceOption voice, double rate, CancellationToken ct) =>
-        Task.FromResult<IPreparedSpeech>(new Prepared { Text = text, Voice = voice, Rate = rate });
+    public Task<IPreparedSpeech> PrepareAsync(SpeechInput input, VoiceOption voice, double rate, CancellationToken ct) =>
+        Task.FromResult<IPreparedSpeech>(new Prepared { Text = input.Text, Voice = voice, Rate = rate });
 
     public void Play(IPreparedSpeech speech, SpeechCallbacks callbacks)
     {

@@ -68,7 +68,9 @@ public partial class MainWindow : Window
         _notesSave.Tick += (_, _) => { _notesSave.Stop(); _notes?.Save(BookNotes.DefaultFolder); };
         _narrator = new NarrationController(Dispatcher) { PauseAroundHeadings = _settings.Reading.PauseAroundHeadings };
         _narrator.StateChanged += OnNarrationStateChanged;
-        _narrator.WordChanged += OnWordChanged;
+        _narrator.HighlightChanged += OnWordChanged;
+        _narrator.Pronouncer.Enabled = _settings.SmartPronunciation;
+        _narrator.Pronouncer.UserWords = _settings.WordList;
         _narrator.ReachedEnd += () => ShowMessage("Finished — that's the end of the book.");
         _narrator.Error += message =>
         {
@@ -111,6 +113,7 @@ public partial class MainWindow : Window
         SkipTocCheck.IsChecked = _settings.Reading.SkipTableOfContents;
         SkipCaptionsCheck.IsChecked = _settings.Reading.SkipCaptions;
         PauseHeadingsCheck.IsChecked = _settings.Reading.PauseAroundHeadings;
+        SmartPronunciationCheck.IsChecked = _settings.SmartPronunciation;
 
         // Text view interaction
         ReaderList.AddHandler(WordTextBlock.WordClickedEvent, new WordClickedEventHandler(OnTextWordClicked));
@@ -484,7 +487,7 @@ public partial class MainWindow : Window
 
     // ===== Narration events ======================================================================
 
-    private void OnWordChanged(int paragraphIndex, int wordIndex)
+    private void OnWordChanged(int paragraphIndex, int wordIndex, int lastWord)
     {
         if (paragraphIndex < 0 || paragraphIndex >= _paragraphs.Length) return;
         var item = _paragraphs[paragraphIndex];
@@ -494,13 +497,15 @@ public partial class MainWindow : Window
             if (_readingParagraph is not null)
             {
                 _readingParagraph.ReadingWord = -1;
+                _readingParagraph.ReadingWordEnd = -1;
                 _readingParagraph.IsActive = false;
             }
             _readingParagraph = item;
             item.IsActive = true;
         }
+        item.ReadingWordEnd = Math.Max(wordIndex, lastWord);
         item.ReadingWord = wordIndex;
-        PagesViewControl.SetReading(paragraphIndex, wordIndex);
+        PagesViewControl.SetReading(paragraphIndex, wordIndex, lastWord);
 
         if (paragraphIndex != _lastSavedParagraph && _narrator.State == NarrationState.Playing)
         {
@@ -763,6 +768,64 @@ public partial class MainWindow : Window
         if (!_ready) return;
         _speedDebounce.Stop();
         _speedDebounce.Start();
+    }
+
+    // ===== Natural voices & pronunciation ===========================================================
+
+    private void OnVoicesClick(object sender, RoutedEventArgs e)
+    {
+        var window = new VoicesWindow { Owner = this };
+        window.ShowDialog();
+        if (!window.Changed && window.ChosenVoiceKey is null) return;
+
+        string? keep = window.ChosenVoiceKey ?? (VoiceBox.SelectedItem as VoiceOption)?.Key;
+        _narrator.RefreshVoices();
+        RebindVoices(keep);
+        if (window.ChosenVoiceKey is not null && VoiceBox.SelectedItem is VoiceOption v && v.Key == window.ChosenVoiceKey)
+            ShowMessage($"Now using the natural voice {v.Name}. The sentence being read is highlighted.");
+    }
+
+    /// <summary>Re-fills the voice list, selecting <paramref name="key"/> if it's still there.</summary>
+    private void RebindVoices(string? key)
+    {
+        var voices = _narrator.Voices;
+        bool wasReady = _ready;
+        _ready = false; // don't treat the re-fill as the user picking a voice
+        VoiceBox.ItemsSource = voices;
+        _ready = wasReady;
+        var pick = voices.FirstOrDefault(v => v.Key == key)
+                   ?? voices.FirstOrDefault(v => v.Key == _settings.VoiceKey)
+                   ?? voices.FirstOrDefault(v => v.Key == _narrator.DefaultVoiceKey)
+                   ?? voices.FirstOrDefault();
+        VoiceBox.SelectedItem = pick;
+        if (pick is not null && !Equals(_narrator.Voice, pick))
+        {
+            _narrator.Voice = pick;
+            _settings.VoiceKey = pick.Key;
+            _settings.Save(_settingsPath);
+        }
+        UpdateUi();
+    }
+
+    private void OnPronunciationChanged(object sender, RoutedEventArgs e)
+    {
+        if (!_ready) return;
+        _settings.SmartPronunciation = SmartPronunciationCheck.IsChecked == true;
+        _narrator.Pronouncer.Enabled = _settings.SmartPronunciation;
+        _settings.Save(_settingsPath);
+        _narrator.PronunciationChanged();
+    }
+
+    private void OnWordListClick(object sender, RoutedEventArgs e)
+    {
+        OptionsButton.IsChecked = false;
+        var window = new WordListWindow(_settings.WordList) { Owner = this };
+        if (window.ShowDialog() != true || window.Result is null) return;
+        _settings.WordList = window.Result;
+        _narrator.Pronouncer.UserWords = window.Result;
+        _settings.Save(_settingsPath);
+        _narrator.PronunciationChanged();
+        ShowMessage($"Word list saved ({window.Result.Count} word{(window.Result.Count == 1 ? "" : "s")}).");
     }
 
     // ===== Keyboard & drag-drop ==================================================================

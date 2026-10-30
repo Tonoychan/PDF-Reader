@@ -24,6 +24,10 @@ public sealed class AppSettings
     public double? PageZoom { get; set; }
     public ReadingOptions Reading { get; set; } = new();
     public bool SidebarOpen { get; set; }
+    /// <summary>Read abbreviations, code names, file types and links naturally.</summary>
+    public bool SmartPronunciation { get; set; } = true;
+    /// <summary>Your own pronunciations: word → how to say it.</summary>
+    public Dictionary<string, string> WordList { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>Folder whose PDFs are listed in the library (subfolders included).</summary>
     public string? LibraryFolder { get; set; }
     /// <summary>"contents" or "search".</summary>
@@ -49,6 +53,7 @@ public sealed class AppSettings
             if (s.PageZoom is < 0.2 or > 8 or double.NaN) s.PageZoom = null;
             if (s.ViewMode is not ("page" or "text")) s.ViewMode = "page";
             s.Reading ??= new ReadingOptions();
+            s.WordList = new Dictionary<string, string>(s.WordList ?? new(), StringComparer.OrdinalIgnoreCase);
             return s;
         }
         catch

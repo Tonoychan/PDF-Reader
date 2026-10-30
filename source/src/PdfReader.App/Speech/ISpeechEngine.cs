@@ -1,11 +1,21 @@
+using PdfReader.Core;
+
 namespace PdfReader.App.Speech;
 
-public enum VoiceEngineKind { OneCore, Sapi }
+public enum VoiceEngineKind { OneCore, Sapi, Piper }
 
 /// <summary>A Windows voice the user can pick.</summary>
 public sealed record VoiceOption(string Key, string Name, string Language, VoiceEngineKind Kind, string EngineVoiceId)
 {
-    public string Display => Kind == VoiceEngineKind.Sapi ? $"{Name} ({Language}) · classic" : $"{Name} ({Language})";
+    public string Display => Kind switch
+    {
+        VoiceEngineKind.Sapi => $"{Name} ({Language}) · classic",
+        VoiceEngineKind.Piper => $"{Name} ({Language}) · natural",
+        _ => $"{Name} ({Language})",
+    };
+
+    /// <summary>Natural (Piper) voices highlight a whole sentence; Windows voices highlight each word.</summary>
+    public bool HighlightsSentences => Kind == VoiceEngineKind.Piper;
     public override string ToString() => Display;
 }
 
@@ -15,7 +25,8 @@ public interface IPreparedSpeech : IDisposable { }
 /// <summary>Callbacks for one spoken chunk. They may arrive on any thread.</summary>
 public sealed class SpeechCallbacks
 {
-    public required Action<int> OnWord { get; init; }          // character index of the word inside the chunk text
+    public required Action<int> OnWord { get; init; }          // character index of the word inside the spoken text
+    public Action<int>? OnSentence { get; init; }               // index into SpeechInput.Sentences (sentence-at-a-time engines)
     public required Action OnFinished { get; init; }
     public required Action<Exception> OnError { get; init; }
 }
@@ -25,7 +36,7 @@ public interface ISpeechEngine : IDisposable
     IReadOnlyList<VoiceOption> Voices { get; }
 
     /// <summary>Turns text into speech ahead of time so playback can start (or follow on) without a gap.</summary>
-    Task<IPreparedSpeech> PrepareAsync(string text, VoiceOption voice, double rate, CancellationToken ct);
+    Task<IPreparedSpeech> PrepareAsync(SpeechInput input, VoiceOption voice, double rate, CancellationToken ct);
 
     /// <summary>Starts speaking. Replaces whatever this engine was speaking before.</summary>
     void Play(IPreparedSpeech speech, SpeechCallbacks callbacks);

@@ -17,6 +17,7 @@
         <SolidColorBrush x:Key="ActiveParagraphBrush" Color="#F1E7CF" />
         <SolidColorBrush x:Key="ReadingWordBrush" Color="#FFCC33" />
         <SolidColorBrush x:Key="ReadingWordTextBrush" Color="#1E1C18" />
+        <SolidColorBrush x:Key="ReadingSentenceBrush" Color="#FFDA6B" />
         <SolidColorBrush x:Key="CursorWordBrush" Color="#DCE5FB" />
         <SolidColorBrush x:Key="SelectedBrush" Color="#E4EAFB" />
         <SolidColorBrush x:Key="PageBackdropBrush" Color="#ECE8DF" />

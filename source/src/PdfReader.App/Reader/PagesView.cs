@@ -3,6 +3,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
+using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using System.Windows.Threading;
 using PdfReader.App.Pdf;
@@ -55,7 +56,9 @@ internal sealed class PageSlot : Grid
         var cts = _cts = new CancellationTokenSource();
         _pendingPx = px;
 
-        var bitmap = await renderer.RenderAsync(PageNumber, px, cts.Token);
+        BitmapSource? bitmap;
+        try { bitmap = await renderer.RenderAsync(PageNumber, px, cts.Token); }
+        catch (Exception) { bitmap = null; } // a page that can't be drawn just stays blank
         if (!ReferenceEquals(_cts, cts) || cts.IsCancellationRequested) return;
         _pendingPx = 0;
         if (bitmap is not null)
@@ -238,7 +241,7 @@ public sealed class PagesView : Grid
     public void Clear()
     {
         foreach (var s in _slots) s.Release();
-        foreach (var mark in new[] { _paragraphMark, _wordMark, _wordMark2, _cursorMark })
+        foreach (var mark in new[] { _paragraphMark, _wordMark, _wordMark2, _cursorMark }.Concat(_sentenceMarks))
             (mark.Parent as Canvas)?.Children.Remove(mark);
         _bookmarkMarks.Clear();
         _slots.Clear();
@@ -335,11 +338,61 @@ public sealed class PagesView : Grid
 
     // ---- highlights ------------------------------------------------------------------------------
 
-    public void SetReading(int paragraph, int word)
+    public void SetReading(int paragraph, int word, int lastWord = -1)
     {
         _readPara = paragraph;
         _readWord = word;
+        _readWordEnd = Math.Max(word, lastWord);
         UpdateMarks();
+    }
+
+    private int _readWordEnd = -1;
+    private readonly List<Rectangle> _sentenceMarks = new();
+
+    /// <summary>One box per line covering the words first..last (a sentence for natural voices).</summary>
+    private void PlaceSentence(Paragraph p, int first, int last)
+    {
+        var lines = new List<BoxF>();
+        for (int i = first; i <= last && i < p.Geometry.Count; i++)
+        {
+            foreach (var box in new[] { p.Geometry[i].Box, p.Geometry[i].Box2 })
+            {
+                if (box.IsEmpty) continue;
+                int li = lines.FindIndex(l => Math.Abs((l.Y + l.H / 2) - (box.Y + box.H / 2)) < Math.Max(l.H, box.H) * 0.5f);
+                if (li >= 0) lines[li] = BoxF.Union(lines[li], box);
+                else lines.Add(box);
+            }
+        }
+        // Per line: a soft band over the words, plus a solid amber underline. The band alone washes out on
+        // warm screens (Night light) because it sits on top of the page; the underline stays easy to see.
+        while (_sentenceMarks.Count < lines.Count * 2)
+        {
+            var band = MakeMark(Color.FromArgb(0x8C, 0xFF, 0xD5, 0x4F), null, 0, 3);
+            var line = MakeMark(Color.FromArgb(0xFF, 0xE0, 0x9A, 0x00), null, 0, 1);
+            Panel.SetZIndex(band, 1);
+            Panel.SetZIndex(line, 1);
+            _sentenceMarks.Add(band);
+            _sentenceMarks.Add(line);
+        }
+        for (int i = 0; i * 2 < _sentenceMarks.Count; i++)
+        {
+            if (i < lines.Count)
+            {
+                var b = lines[i];
+                Place(_sentenceMarks[i * 2], p.PageNumber, b, 1.5f);
+                Place(_sentenceMarks[i * 2 + 1], p.PageNumber, new BoxF(b.X - 1.5f, b.Bottom + 1.8f, b.W + 3f, Math.Max(1.6f, b.H * 0.14f)), 0f);
+            }
+            else
+            {
+                Hide(_sentenceMarks[i * 2]);
+                Hide(_sentenceMarks[i * 2 + 1]);
+            }
+        }
+    }
+
+    private void HideSentence()
+    {
+        foreach (var m in _sentenceMarks) Hide(m);
     }
 
     public void SetCursor(int paragraph, int word)
@@ -354,15 +407,26 @@ public sealed class PagesView : Grid
         if (TryGetWord(_readPara, _readWord, out var p, out var g))
         {
             Place(_paragraphMark, p.PageNumber, p.Bounds, 5);
-            Place(_wordMark, p.PageNumber, g.Box, 1.2f);
-            if (!g.Box2.IsEmpty) Place(_wordMark2, p.PageNumber, g.Box2, 1.2f);
-            else Hide(_wordMark2);
+            if (_readWordEnd > _readWord)
+            {
+                Hide(_wordMark);
+                Hide(_wordMark2);
+                PlaceSentence(p, _readWord, _readWordEnd);
+            }
+            else
+            {
+                HideSentence();
+                Place(_wordMark, p.PageNumber, g.Box, 1.2f);
+                if (!g.Box2.IsEmpty) Place(_wordMark2, p.PageNumber, g.Box2, 1.2f);
+                else Hide(_wordMark2);
+            }
         }
         else
         {
             Hide(_paragraphMark);
             Hide(_wordMark);
             Hide(_wordMark2);
+            HideSentence();
         }
 
         if (TryGetWord(_cursorPara, _cursorWord, out var cp, out var cg)) Place(_cursorMark, cp.PageNumber, cg.Box, 1.5f);

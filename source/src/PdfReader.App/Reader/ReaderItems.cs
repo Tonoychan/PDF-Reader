@@ -42,6 +42,11 @@ public sealed class ParagraphItem : INotifyPropertyChanged
     /// <summary>Word being read (or where reading will resume), -1 for none.</summary>
     public int ReadingWord { get => _readingWord; set => Set(ref _readingWord, value); }
 
+    private int _readingWordEnd = -1;
+
+    /// <summary>Last word of the highlight (a sentence with natural voices; same as ReadingWord otherwise).</summary>
+    public int ReadingWordEnd { get => _readingWordEnd; set => Set(ref _readingWordEnd, value); }
+
     /// <summary>Word the user clicked to read from next, -1 for none.</summary>
     public int CursorWord { get => _cursorWord; set => Set(ref _cursorWord, value); }
 

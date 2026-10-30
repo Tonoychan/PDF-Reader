@@ -315,6 +315,113 @@ Console.WriteLine("Bookmarks");
     Directory.Delete(nd, true);
 }
 
+
+Console.WriteLine("Pronunciation");
+{
+    var pr = new Pronouncer();
+    string Say(string t) => pr.Transform(t).Text;
+    Eq("e.g. with comma", "for example, Unity", Say("e.g., Unity"));
+    Eq("i.e. and etc.", "that is this et cetera", Say("i.e. this etc."));
+    Eq("camel case", "Use the Audio Source component", Say("Use the AudioSource component"));
+    Eq("acronym then word", "GPU Instancing on", Say("GPUInstancing on"));
+    Eq("trailing digits", "On Trigger Enter 2D", Say("OnTriggerEnter2D"));
+    Eq("short or plain words kept", "iOS Hello macOS Unity iPhone", Say("iOS Hello macOS Unity iPhone"));
+    Eq("file extension", "uncompressed dot wave files", Say("uncompressed .wav files"));
+    Eq("file name", "my Texture dot P N G", Say("myTexture.png"));
+    Eq("dotted API", "Debug dot Log statements", Say("Debug.Log statements"));
+    Eq("method call", "Get Component dot Value", Say("GetComponent.Value()"));
+    Eq("decimal kept", "costs 2.5 ms", Say("costs 2.5 ms"));
+    Eq("version with v", "version 1 point 2 point 3", Say("v1.2.3"));
+    Eq("three-part version", "Unity 2022 point 3 point 10", Say("Unity 2022.3.10"));
+    Eq("dimensions", "1920 by 1080", Say("1920x1080"));
+    Eq("C sharp", "in C sharp and C plus plus", Say("in C# and C++"));
+    Eq("dot net", "dot net apps", Say(".NET apps"));
+    Eq("url", "unity dot com slash learn slash tutorials", Say("https://www.unity.com/learn/tutorials?x=1"));
+    Eq("email", "me at site dot com", Say("me@site.com"));
+    Eq("slash between names", "CPU or GPU", Say("CPU/GPU"));
+    Eq("slash in units kept", "50 km/h", Say("50 km/h"));
+    Eq("snake case", "max texture size", Say("max_texture_size"));
+    Eq("bullets dropped", "First item", Say("• First item"));
+    Eq("arrow", "A to B", Say("A → B"));
+    Eq("punctuation kept around", "(Audio Source)", Say("(AudioSource)"));
+    Eq("number sign", "number 1 tip", Say("#1 tip"));
+    pr.UserWords = new Dictionary<string, string> { ["LTS"] = "long term support", ["URP"] = "U R P" };
+    Eq("user word list", "Unity long term support with U R P.", Say("Unity LTS with URP."));
+    pr.Enabled = false;
+    Eq("disabled: user words still apply", "AudioSource long term support", Say("AudioSource LTS"));
+    pr.UserWords = new Dictionary<string, string>();
+    Eq("disabled: unchanged", "e.g. AudioSource", Say("e.g. AudioSource"));
+
+    var on = new Pronouncer();
+    var st = on.Transform("Use e.g. the AudioSource now");
+    int idxSource = st.Text.IndexOf("Source");
+    Eq("map: spoken 'Source' -> original 'AudioSource'", 13, st.ToOriginal(idxSource));
+    Eq("map: spoken 'example' -> original 'e.g.'", 4, st.ToOriginal(st.Text.IndexOf("example")));
+    Eq("map: last word", 25, st.ToOriginal(st.Text.Length - 1));
+
+    Console.WriteLine("Sentences");
+    var ss = SentenceSplitter.Split("This is one. And two! Is it three? Yes.");
+    Eq("four sentences", 4, ss.Count);
+    Eq("first sentence", "This is one.", "This is one. And two! Is it three? Yes."[ss[0].Start..(ss[0].Start + ss[0].Length)]);
+    Eq("abbreviation doesn't split", 1, SentenceSplitter.Split("Use tools, e.g. Profiler and so on.").Count);
+    Eq("decimal doesn't split", 1, SentenceSplitter.Split("It costs 2.5 ms per frame.").Count);
+    Eq("lowercase after period doesn't split", 1, SentenceSplitter.Split("Call Debug.Log. then continue").Count);
+    string longSentence = string.Join(", ", Enumerable.Repeat("a fairly long clause of words here", 20)) + ".";
+    var cut = SentenceSplitter.Split(longSentence);
+    Check("long sentence cut", cut.Count > 1 && cut.All(c => c.Length <= SentenceSplitter.MaxSentenceLength));
+    Check("cut pieces cover the text", cut[^1].Start + cut[^1].Length == longSentence.Length);
+
+    Console.WriteLine("SpeechInput");
+    var orig = "Profiling helps. Use the AudioSource, e.g. for music.";
+    var input = SpeechInput.Build(orig, new Pronouncer());
+    Eq("spoken text", "Profiling helps. Use the Audio Source, for example for music.", input.Text);
+    Eq("two sentences", 2, input.Sentences.Count);
+    Eq("sentence 2 original start", 17, input.Sentences[1].OriginalStart);
+    Eq("sentence 2 spoken text", "Use the Audio Source, for example for music.", input.SentenceText(1));
+    Eq("map in sentence 2", orig.IndexOf("AudioSource"), input.Spoken.ToOriginal(input.Text.IndexOf("Source,")));
+    Eq("map 'example'", orig.IndexOf("e.g."), input.Spoken.ToOriginal(input.Text.IndexOf("example")));
+    var plain = SpeechInput.Build("Only bullets • ", new Pronouncer());
+    Check("non-empty input", plain.Text.Length > 0 && plain.Sentences.Count == 1);
+
+    Console.WriteLine("PiperCatalog");
+    string catalog = """
+    {
+      "en_GB-alan-medium": { "key": "en_GB-alan-medium", "name": "alan", "language": { "code": "en_GB", "name_english": "English", "country_english": "Great Britain" },
+        "quality": "medium", "num_speakers": 1,
+        "files": { "en/en_GB/alan/medium/en_GB-alan-medium.onnx": { "size_bytes": 63201294 }, "en/en_GB/alan/medium/en_GB-alan-medium.onnx.json": { "size_bytes": 4888 }, "en/en_GB/alan/medium/MODEL_CARD": {} } },
+      "de_DE-thorsten-high": { "key": "de_DE-thorsten-high", "name": "thorsten", "language": { "code": "de_DE", "name_english": "German", "country_english": "Germany" },
+        "quality": "high", "num_speakers": 1,
+        "files": { "de/de_DE/thorsten/high/de_DE-thorsten-high.onnx": { "size_bytes": 114199011 }, "de/de_DE/thorsten/high/de_DE-thorsten-high.onnx.json": {} } },
+      "en_US-lessac-medium": { "key": "en_US-lessac-medium", "name": "lessac", "language": { "code": "en_US", "name_english": "English", "country_english": "United States" },
+        "quality": "medium", "num_speakers": 1,
+        "files": { "en/en_US/lessac/medium/en_US-lessac-medium.onnx": { "size_bytes": 63201294 }, "en/en_US/lessac/medium/en_US-lessac-medium.onnx.json": {} } },
+      "broken": { "name": "x" }
+    }
+    """;
+    var voices = PiperCatalog.Parse(catalog);
+    Eq("catalog voices (broken skipped)", 3, voices.Count);
+    Eq("recommended first", "en_US-lessac-medium", voices[0].Key);
+    Eq("language name", "English (Great Britain)", voices[1].LanguageName);
+    Eq("model path", "en/en_GB/alan/medium/en_GB-alan-medium.onnx", voices[1].ModelFile);
+    Eq("size label", "63 MB", voices[1].SizeLabel);
+    Eq("display name", "Lessac", voices[0].DisplayName);
+    Check("english flag", voices[0].IsEnglish && !voices[2].IsEnglish);
+    var cfg = PiperCatalog.ReadConfig("""{ "audio": { "sample_rate": 22050 }, "language": { "code": "en_US" }, "dataset": "lessac" }""");
+    Eq("config sample rate", 22050, cfg.SampleRate);
+    Eq("config language", "en_US", cfg.Language);
+}
+
+
+Console.WriteLine("WordListText");
+{
+    var wl = WordListText.Parse("LTS = long term support\r\n# comment\n  URP=U R P \nbad line\ntwo words = no\n= empty\nSkip =");
+    Eq("parsed entries", 3, wl.Count);
+    Eq("trimmed value", "U R P", wl["urp"]);
+    Eq("empty say allowed (skip word)", "", wl["Skip"]);
+    var round = WordListText.Parse(WordListText.Format(wl));
+    Eq("format round-trips", "long term support", round["LTS"]);
+}
+
 Console.WriteLine("ReadingPlan");
 var spoken = new ReadingOptions();
 var plan = new ReadingPlan(book, spoken.IsSpoken);
