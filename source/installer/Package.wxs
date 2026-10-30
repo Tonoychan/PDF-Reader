@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Simple PDF Narrator installer (MSI), installed just for the current user: no administrator prompt.
+  Puts PDFReader.exe in %LocalAppData%\Programs\Simple PDF Narrator, adds Start menu and desktop shortcuts,
+  and lists Simple PDF Narrator under "Open with" for PDF files. Uninstall from Settings › Apps.
+  Your library, bookmarks, settings and downloaded voices live elsewhere and are kept.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Simple PDF Narrator"
+           Manufacturer="Tonoy Chakraborty"
+           Version="$(var.ProductVersion)"
+           UpgradeCode="e5a965af-9dc9-413a-aa55-e4aa7a009ed6"
+           Scope="perUser"
+           Language="1033"
+           Compressed="yes">
+
+    <!-- Installing a newer setup replaces the old version in place. -->
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="A newer version of Simple PDF Narrator is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="AppIcon" SourceFile="$(var.AppIcon)" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/Tonoychan/PDF-Reader" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <Property Id="ARPNOREPAIR" Value="1" />
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="ProgramsDir" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="Simple PDF Narrator" />
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="Main" Title="Simple PDF Narrator">
+      <!-- The app itself -->
+      <Component Id="MainExe" Guid="a8995f90-b598-43f9-8fb0-97e12b148c56" Directory="INSTALLFOLDER">
+        <File Id="PDFReaderExe" Source="$(var.AppExe)" KeyPath="no" />
+        <RegistryValue Root="HKCU" Key="Software\PDF Reader\Install" Name="Folder" Type="string" Value="[INSTALLFOLDER]" KeyPath="yes" />
+        <RemoveFolder Id="RemoveInstallFolder" Directory="INSTALLFOLDER" On="uninstall" />
+      </Component>
+
+      <!-- Start menu -->
+      <Component Id="StartMenuShortcut" Guid="7d4e1085-2999-4f13-961e-d0e02d5ad86d" Directory="ProgramMenuFolder">
+        <Shortcut Id="StartShortcut" Name="Simple PDF Narrator" Description="Read PDF books and guides aloud"
+                  Target="[INSTALLFOLDER]PDFReader.exe" WorkingDirectory="INSTALLFOLDER" Icon="AppIcon" />
+        <RegistryValue Root="HKCU" Key="Software\PDF Reader\Install" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+
+      <!-- Desktop -->
+      <Component Id="DesktopShortcut" Guid="fc1d6353-78f8-4d31-8be3-d67deddacc34" Directory="DesktopFolder">
+        <Shortcut Id="DeskShortcut" Name="Simple PDF Narrator" Description="Read PDF books and guides aloud"
+                  Target="[INSTALLFOLDER]PDFReader.exe" WorkingDirectory="INSTALLFOLDER" Icon="AppIcon" />
+        <RegistryValue Root="HKCU" Key="Software\PDF Reader\Install" Name="DesktopShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+
+      <!-- "Open with" for PDF files (it doesn't take over as the default PDF app) -->
+      <Component Id="OpenWith" Guid="5ab29900-fc7b-49cd-abc0-db24293f6513" Directory="INSTALLFOLDER">
+        <RegistryValue Root="HKCU" Key="Software\Classes\PDFReader.Document" Type="string" Value="PDF document" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\PDFReader.Document\DefaultIcon" Type="string" Value="&quot;[INSTALLFOLDER]PDFReader.exe&quot;,0" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\PDFReader.Document\shell\open\command" Type="string"
+                       Value="&quot;[INSTALLFOLDER]PDFReader.exe&quot; &quot;%1&quot;" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\.pdf\OpenWithProgids" Name="PDFReader.Document" Type="string" Value="" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\Applications\PDFReader.exe" Name="FriendlyAppName" Type="string" Value="Simple PDF Narrator" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\Applications\PDFReader.exe\SupportedTypes" Name=".pdf" Type="string" Value="" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\Applications\PDFReader.exe\shell\open\command" Type="string"
+                       Value="&quot;[INSTALLFOLDER]PDFReader.exe&quot; &quot;%1&quot;" />
+        <RegistryValue Root="HKCU" Key="Software\PDF Reader\Install" Name="OpenWith" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </Feature>
+  </Package>
+</Wix>

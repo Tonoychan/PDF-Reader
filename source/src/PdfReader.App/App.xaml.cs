@@ -23,7 +23,7 @@ public partial class App : Application
 
     private void OnUnhandled(object sender, DispatcherUnhandledExceptionEventArgs e)
     {
-        MessageBox.Show("Something went wrong:\n\n" + e.Exception.Message, "PDF Reader",
+        MessageBox.Show("Something went wrong:\n\n" + e.Exception.Message, "Simple PDF Narrator",
             MessageBoxButton.OK, MessageBoxImage.Warning);
         e.Handled = true;
     }

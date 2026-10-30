@@ -24,6 +24,9 @@ public sealed class LibraryCard : INotifyPropertyChanged
     public bool IsMissing { get; }
     public bool IsCurrent { get; }
 
+    /// <summary>Shown under Continue reading / Recently opened (so it can be removed from that list).</summary>
+    public bool InRecent { get; init; }
+
     public string Subtitle
     {
         get

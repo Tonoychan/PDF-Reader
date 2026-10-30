@@ -4,7 +4,7 @@
         xmlns:r="clr-namespace:PdfReader.App.Reader"
         xmlns:lib="clr-namespace:PdfReader.App.Library"
         xmlns:sp="clr-namespace:PdfReader.App.Speech"
-        Title="PDF Reader"
+        Title="Simple PDF Narrator"
         Width="1180" Height="860" MinWidth="900" MinHeight="560"
         WindowStartupLocation="CenterScreen"
         Icon="app.ico"
@@ -22,7 +22,7 @@
 
         <!-- A book on the library shelf -->
         <DataTemplate x:Key="BookCardTemplate" DataType="{x:Type lib:LibraryCard}">
-            <Button Width="172" Margin="10,0,10,22" Padding="0" Click="OnBookCardClick" Tag="{Binding}" Cursor="Hand" Focusable="False"
+            <Button x:Name="CardRoot" Width="172" Margin="10,0,10,22" Padding="0" Click="OnBookCardClick" Tag="{Binding}" Cursor="Hand" Focusable="False"
                     ToolTip="{Binding Path}">
                 <Button.Template>
                     <ControlTemplate TargetType="Button">
@@ -41,7 +41,7 @@
                         <MenuItem Header="Open" Click="OnCardOpenMenu" />
                         <MenuItem Header="Show in folder" Click="OnCardShowInFolderMenu" />
                         <Separator />
-                        <MenuItem Header="Remove from Continue reading" Click="OnCardRemoveRecentMenu" />
+                        <MenuItem Header="Remove from recently opened" Click="OnCardRemoveRecentMenu" />
                         <MenuItem Header="Remove from library" Click="OnCardRemoveLibraryMenu" />
                     </ContextMenu>
                 </Button.ContextMenu>
@@ -54,6 +54,24 @@
                             <TextBlock Text="{Binding Initial}" FontFamily="{StaticResource SerifFont}" FontSize="54" Foreground="{DynamicResource ChromeBorderBrush}"
                                        HorizontalAlignment="Center" VerticalAlignment="Center" />
                             <Image Source="{Binding Cover}" Stretch="UniformToFill" VerticalAlignment="Top" RenderOptions.BitmapScalingMode="HighQuality" />
+                            <!-- × on hover: take the book off the recently opened list -->
+                            <Button x:Name="RemoveRecent" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,6,6,0" Width="30" Height="30"
+                                    Visibility="Collapsed" Cursor="Hand" Focusable="False" Click="OnCardRemoveRecentMenu"
+                                    ToolTip="Remove from recently opened (the file isn't deleted)">
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border x:Name="Bd" CornerRadius="15" Background="{DynamicResource ChromeBrush}" BorderBrush="{DynamicResource ChromeBorderBrush}" BorderThickness="1">
+                                            <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE711;" FontSize="11" Foreground="{DynamicResource InkBrush}"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource HoverBrush}" />
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Button.Template>
+                            </Button>
                         </Grid>
                     </Border>
                     <TextBlock Text="{Binding Title}" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource InkBrush}" Margin="0,10,0,0"
@@ -64,6 +82,15 @@
                                  Visibility="{Binding ShowProgress, Converter={StaticResource BoolToVisible}}" />
                 </StackPanel>
             </Button>
+            <DataTemplate.Triggers>
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding InRecent}" Value="True" />
+                        <Condition Binding="{Binding IsMouseOver, ElementName=CardRoot}" Value="True" />
+                    </MultiDataTrigger.Conditions>
+                    <Setter TargetName="RemoveRecent" Property="Visibility" Value="Visible" />
+                </MultiDataTrigger>
+            </DataTemplate.Triggers>
         </DataTemplate>
     </Window.Resources>
 
@@ -677,6 +704,14 @@
                                         </StackPanel>
                                     </Button>
                                     <Button Style="{StaticResource PillButton}" Height="44" Padding="20,0" Margin="10,0,0,0" FontSize="14" Content="Open" Click="OnContinueOpenClick" />
+                                    <Button Style="{StaticResource ToolButton}" Height="44" Padding="14,0" Margin="6,0,0,0" FontSize="13" Click="OnContinueRemoveClick"
+                                            ToolTip="Take this book off the list (the file isn't deleted)">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE711;" FontSize="10" Margin="0,0,7,0" VerticalAlignment="Center"
+                                                       Foreground="{DynamicResource MutedInkBrush}" />
+                                            <TextBlock Text="Remove from list" Foreground="{DynamicResource MutedInkBrush}" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                    </Button>
                                 </StackPanel>
                             </StackPanel>
                         </DockPanel>
@@ -689,6 +724,24 @@
                         </ItemsControl.ItemsPanel>
                     </ItemsControl>
 
+                    <!-- No books folder: offer to choose one (also after Stop watching) -->
+                    <Border x:Name="FolderPrompt" Background="{DynamicResource ChromeBrush}" BorderBrush="{DynamicResource ChromeBorderBrush}" BorderThickness="1"
+                            CornerRadius="14" Padding="24,18" Margin="0,22,0,0" Visibility="Collapsed">
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Style="{StaticResource PillButton}" Height="40" Padding="16,0" VerticalAlignment="Center" Click="OnChooseFolderClick">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE8B7;" FontSize="13" Margin="0,0,8,0" VerticalAlignment="Center" />
+                                    <TextBlock Text="Choose books folder…" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
+                            <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
+                                <TextBlock Text="Books folder" FontSize="18" FontWeight="SemiBold" />
+                                <TextBlock Style="{StaticResource HintText}" FontSize="13" Margin="0,4,0,0"
+                                           Text="Pick a folder and every PDF in it (and in its subfolders) is listed here, ready to open." />
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+
                     <DockPanel x:Name="FolderHeader" Margin="0,22,0,6">
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                             <Button x:Name="RefreshFolderButton" Style="{StaticResource ToolButton}" Padding="10,6" Click="OnRefreshFolderClick" ToolTip="Look for new PDFs">
@@ -699,7 +752,7 @@
                             </Button>
                             <Button Style="{StaticResource ToolButton}" Padding="10,6" Margin="4,0,0,0" Click="OnChooseFolderClick" Content="Change folder…" />
                             <Button x:Name="ForgetFolderButton" Style="{StaticResource ToolButton}" Padding="10,6" Margin="4,0,0,0" Click="OnForgetFolderClick"
-                                    Content="Stop watching" ToolTip="Stop listing this folder's books" />
+                                    Content="Stop watching" ToolTip="Stop listing this folder's books. You can choose a folder again any time." />
                         </StackPanel>
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                             <TextBlock Text="Books folder" FontSize="18" FontWeight="SemiBold" />

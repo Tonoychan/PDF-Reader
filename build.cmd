@@ -39,6 +39,9 @@ set "DOTNET_NOLOGO=1"
 "%DOTNET%" --list-sdks
 "%DOTNET%" publish "%ROOT%source\src\PdfReader.App\PdfReader.App.csproj" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:DebugType=none -o "%ROOT%build-output"
 if errorlevel 1 exit /b 1
+rem If the app is running, Windows still lets us rename its exe, so move it aside first.
+if exist "%ROOT%PDFReader.old.exe" del /f /q "%ROOT%PDFReader.old.exe" >nul 2>&1
+if exist "%ROOT%PDFReader.exe" move /y "%ROOT%PDFReader.exe" "%ROOT%PDFReader.old.exe" >nul 2>&1
 copy /y "%ROOT%build-output\PDFReader.exe" "%ROOT%PDFReader.exe" >nul
 if errorlevel 1 exit /b 1
 echo BUILD OK

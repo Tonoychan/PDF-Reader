@@ -1,37 +1,41 @@
-PDF Reader - reads PDFs aloud with Windows voices
-==================================================
+Simple PDF Narrator - reads PDF books and guides aloud, highlighting what it reads
+==================================================================================
 
-Run:    PDFReader.exe   (single file, nothing to install)
-Build:  double-click build.cmd  (uses the .NET 8 SDK in .sdk; output goes to PDFReader.exe; details in build.log)
+Install:  double-click SimplePDFNarrator-Setup.msi  (just for you, no administrator prompt)
+          Adds Start menu and desktop shortcuts and "Open with > Simple PDF Narrator" for PDF files.
+          Remove it from Settings > Apps. A newer setup installs over the old one.
+          Works on other Windows 10/11 (64-bit) PCs too: copy the .msi over and run it.
+Run without installing:  PDFReader.exe  (single file)
 
-Views (top bar)
-  Page   the real PDF pages (pictures, headings, layout), the spoken word highlighted on the page
-  Text   clean text with headings and pictures inline, adjustable text size
+Build:      double-click build.cmd           -> PDFReader.exe      (details in build.log)
+Installer:  double-click make-installer.cmd  -> SimplePDFNarrator-Setup.msi (details in installer.log)
+            Both use the .NET 8 SDK in .sdk (installed there automatically, no admin).
 
-Using it
-  Open PDF / drag a PDF onto the window   load a book
-  Play / Pause  (Space)                    start, pause, resume
-  Stop  (Esc)                              stop and go back to the start of the paragraph
-  Prev / Next paragraph  (Ctrl+Left/Right) skip back / forward one paragraph
-  Click a word                             not reading: start from that word on Play
-                                           reading/paused: places a cursor (blue box);
-                                           Play (when paused) or "Read from cursor" jumps there
-  Double-click a word                      read from that word right away
-  Ctrl + mouse wheel, Ctrl +/-             zoom pages (Page view) or text size (Text view)
-  Ctrl + 0                                 fit page width
-  Scrolling away while reading pauses auto-follow; "Back to reading position" returns.
+Reading screen
+  Top bar      Library (back to your books) - book and chapter - Page | Text - panel buttons:
+               Contents, Search, Bookmarks, Reading options, Appearance
+  Player       previous / play-pause / next paragraph, stop, Read from here,
+               voice and speed button, page box (Ctrl+G) and progress
+  Page view    the real PDF pages; the word (Windows voices) or sentence (natural voices) is highlighted
+  Text view    clean text with headings and pictures
 
-Reading options (top bar) - what is NOT read aloud (all on by default)
-  Page headers, footers & page numbers / Footnotes / Table of contents pages / Picture captions
-  Pause briefly around headings
-  Text inside pictures is never read.
+Shortcuts
+  Space play/pause - Esc stop - Ctrl+Left/Right paragraph - Ctrl+O open - Ctrl+L library
+  Ctrl+F search (F3 next) - Ctrl+D bookmark - Ctrl+G go to page - Ctrl+wheel / Ctrl+/- zoom - Ctrl+0 fit width
+  Click a word: start there / place a cursor. Double-click: read from it. Right-click: bookmark, note, copy.
+  Media keys and the Windows media panel work too, and reading continues when minimised.
 
-It remembers voice, speed, view, zoom, text size, reading options and where you stopped in each book
-(%AppData%\PDF Reader\settings.json).
+Voices
+  Windows voices are built in. Natural voices (Piper) are free downloads: player > voice button > Download more voices.
+
+Your data (kept when you reinstall or uninstall; the folders keep the app's old name)
+  %AppData%\PDF Reader        settings, library, bookmarks and notes
+  %LocalAppData%\PDF Reader   page cache, covers, natural voices
 
 Not yet: scanned (image-only) PDFs need OCR.
 
-Source layout (source\src)
-  PdfReader.Core         text clean-up, word positions, block kinds (heading/footnote/...), reading plan, settings (unit tested)
-  PdfReader.Core.Tests   `dotnet run` test runner
-  PdfReader.App          WPF app: PdfPig text extraction, Windows PDF page rendering, OneCore + SAPI voices, both views
+Source layout (source\)
+  src\PdfReader.Core         text clean-up, layout, reading plan, pronunciation, search, library, bookmarks (unit tested)
+  src\PdfReader.Core.Tests   `dotnet run` test runner
+  src\PdfReader.App          WPF app: views, voices (OneCore, SAPI, Piper), media controls, themes
+  installer\                 WiX MSI (Package.wxs)

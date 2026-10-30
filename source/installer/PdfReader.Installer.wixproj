@@ -1,0 +1,14 @@
+<Project Sdk="WixToolset.Sdk/5.0.2">
+  <!--
+    Builds SimplePDFNarrator-Setup.msi from the published PDFReader.exe.
+    make-installer.cmd passes AppExe, AppIcon and ProductVersion.
+  -->
+  <PropertyGroup>
+    <OutputName>SimplePDFNarrator-Setup</OutputName>
+    <OutputType>Package</OutputType>
+    <ProductVersion Condition="'$(ProductVersion)' == ''">2.0.0</ProductVersion>
+    <DefineConstants>AppExe=$(AppExe);AppIcon=$(AppIcon);ProductVersion=$(ProductVersion)</DefineConstants>
+    <!-- Per-user install: Windows Installer's machine-wide checks (ICE) don't apply. -->
+    <SuppressValidation>true</SuppressValidation>
+  </PropertyGroup>
+</Project>

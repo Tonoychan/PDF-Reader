@@ -80,7 +80,7 @@ public sealed class MediaSession
             display.Type = MediaPlaybackType.Music;
             display.MusicProperties.Title = title;
             display.MusicProperties.Artist = subtitle;
-            display.MusicProperties.AlbumTitle = "PDF Reader";
+            display.MusicProperties.AlbumTitle = "Simple PDF Narrator";
             if (coverChanged) display.Thumbnail = null;
             display.Update();
         }

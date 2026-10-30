@@ -84,7 +84,7 @@ public partial class MainWindow : Window
         _narrator.Error += message =>
         {
             ShowMessage(message);
-            MessageBox.Show(this, message, "PDF Reader", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(this, message, "Simple PDF Narrator", MessageBoxButton.OK, MessageBoxImage.Warning);
         };
 
         // Voices
@@ -192,7 +192,7 @@ public partial class MainWindow : Window
     {
         if (!File.Exists(path))
         {
-            MessageBox.Show(this, $"File not found:\n{path}", "PDF Reader", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(this, $"File not found:\n{path}", "Simple PDF Narrator", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
@@ -249,14 +249,14 @@ public partial class MainWindow : Window
         catch (PdfDocumentEncryptedException)
         {
             if (ReferenceEquals(_loadCts, cts)) ResetToEmpty();
-            MessageBox.Show(this, "This PDF is password-protected, so its text can't be read.", "PDF Reader",
+            MessageBox.Show(this, "This PDF is password-protected, so its text can't be read.", "Simple PDF Narrator",
                 MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
         catch (Exception ex)
         {
             if (ReferenceEquals(_loadCts, cts)) ResetToEmpty();
-            MessageBox.Show(this, "Couldn't open this PDF.\n\n" + ex.Message, "PDF Reader",
+            MessageBox.Show(this, "Couldn't open this PDF.\n\n" + ex.Message, "Simple PDF Narrator",
                 MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
@@ -276,7 +276,7 @@ public partial class MainWindow : Window
             MessageBox.Show(this,
                 "This PDF has no selectable text — it's probably scanned page images.\n\n" +
                 "Reading scanned pages needs text recognition (OCR), which isn't in this version yet.",
-                "PDF Reader", MessageBoxButton.OK, MessageBoxImage.Information);
+                "Simple PDF Narrator", MessageBoxButton.OK, MessageBoxImage.Information);
             UpdateUi();
             return;
         }
@@ -302,7 +302,7 @@ public partial class MainWindow : Window
         HideLibrary(force: true);
         BookTitle.Text = title;
         BookInfo.Text = $"{renderer.PageCount} pages · preparing text…";
-        Title = $"{title} — PDF Reader";
+        Title = $"{title} — Simple PDF Narrator";
         EmptyState.Visibility = Visibility.Collapsed;
         _message = null;
         ApplyViewMode();
@@ -326,7 +326,7 @@ public partial class MainWindow : Window
         ClearSearch();
         BookTitle.Text = "No book open";
         BookInfo.Text = "Open a PDF to start";
-        Title = "PDF Reader";
+        Title = "Simple PDF Narrator";
         _notes = null;
         _media?.Clear();
         RefreshBookmarks();
@@ -403,7 +403,7 @@ public partial class MainWindow : Window
         _settings.LastFolder = Path.GetDirectoryName(book.FilePath);
         BookTitle.Text = book.Title;
         BookInfo.Text = $"{book.PageCount} pages · {book.Paragraphs.Count(p => p.Kind != ParagraphKind.HeaderFooter)} paragraphs";
-        Title = $"{book.Title} — PDF Reader";
+        Title = $"{book.Title} — Simple PDF Narrator";
         EmptyState.Visibility = Visibility.Collapsed;
 
         // Library and bookmarks
@@ -973,7 +973,7 @@ public partial class MainWindow : Window
         string? current = _book?.FilePath;
 
         var recent = _library.Recent.Where(Match)
-            .Select(e => new LibraryCard(e, string.Equals(e.Path, current, StringComparison.OrdinalIgnoreCase))).ToList();
+            .Select(e => new LibraryCard(e, string.Equals(e.Path, current, StringComparison.OrdinalIgnoreCase)) { InRecent = true }).ToList();
 
         // The most recent book gets the big "Continue reading" card (unless you're searching).
         LibraryCard? continueCard = filter.Length == 0 ? recent.FirstOrDefault(c => !c.IsMissing) : null;
@@ -1001,6 +1001,16 @@ public partial class MainWindow : Window
             : $"{all.Count} book{(all.Count == 1 ? "" : "s")}";
 
         LibraryHero.Visibility = _library.Recent.Count == 0 && !hasFolder ? Visibility.Visible : Visibility.Collapsed;
+        // No books folder yet (or you stopped watching it): offer to pick one.
+        FolderPrompt.Visibility = !hasFolder && LibraryHero.Visibility != Visibility.Visible ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void OnContinueRemoveClick(object sender, RoutedEventArgs e)
+    {
+        if (ContinueCard.DataContext is not LibraryCard card) return;
+        _library.Remove(card.Path, alsoFromFolder: false);
+        _library.Save(_libraryPath);
+        RefreshLibrary();
     }
 
     private async void OnContinueOpenClick(object sender, RoutedEventArgs e)
@@ -1028,7 +1038,7 @@ public partial class MainWindow : Window
         if (card.IsMissing)
         {
             var answer = MessageBox.Show(this, $"This file can't be found any more:\n{card.Path}\n\nRemove it from the library?",
-                "PDF Reader", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                "Simple PDF Narrator", MessageBoxButton.YesNo, MessageBoxImage.Question);
             if (answer == MessageBoxResult.Yes)
             {
                 _library.Remove(card.Path, alsoFromFolder: true);
@@ -1063,6 +1073,7 @@ public partial class MainWindow : Window
 
     private void OnCardRemoveRecentMenu(object sender, RoutedEventArgs e)
     {
+        e.Handled = true; // the × sits on the card: don't open the book too
         if (CardOf(sender) is not { } card) return;
         _library.Remove(card.Path, alsoFromFolder: false);
         _library.Save(_libraryPath);
@@ -1226,7 +1237,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, "Couldn't save the file.\n\n" + ex.Message, "PDF Reader", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(this, "Couldn't save the file.\n\n" + ex.Message, "Simple PDF Narrator", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
 
