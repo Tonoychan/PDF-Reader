@@ -473,9 +473,28 @@ Eq("rate round-trips", 1.4, s2.Rate);
 Eq("position recalled (case-insensitive path)", new ReadingPosition(2, 9), s2.Recall(book.FilePath.ToUpperInvariant(), book));
 Eq("out-of-range position ignored", (ReadingPosition?)null,
     new AppSettings { Positions = new() { ["x"] = new SavedPosition { Paragraph = 50 } } }.Recall("x", book));
+var th = new AppSettings { Theme = "Dark", MatchPageColors = false, Maximized = true };
+th.Save(tmp);
+var th2 = AppSettings.Load(tmp);
+Check("theme round-trips", th2.Theme == "Dark" && !th2.MatchPageColors && th2.Maximized);
+new AppSettings { Theme = "Neon" }.Save(tmp);
+Eq("unknown theme falls back to Light", "Light", AppSettings.Load(tmp).Theme);
+Check("page colours match theme by default", new AppSettings().MatchPageColors);
 File.WriteAllText(tmp, "{ not json");
 Eq("corrupt file falls back to defaults", 1.0, AppSettings.Load(tmp).Rate);
 File.Delete(tmp);
+
+Console.WriteLine("PageTinter");
+Eq("none leaves pixels", ((byte)10, (byte)20, (byte)30), PageTinter.Map(PageTint.None, 10, 20, 30));
+Eq("sepia: white becomes paper", PageTinter.SepiaPaper, PageTinter.Map(PageTint.Sepia, 255, 255, 255));
+Eq("sepia: black becomes brown ink", PageTinter.SepiaInk, PageTinter.Map(PageTint.Sepia, 0, 0, 0));
+Eq("dark: white page becomes dark", (PageTinter.DarkPaper, PageTinter.DarkPaper, PageTinter.DarkPaper), PageTinter.Map(PageTint.Dark, 255, 255, 255));
+Eq("dark: black text becomes light", (PageTinter.DarkInk, PageTinter.DarkInk, PageTinter.DarkInk), PageTinter.Map(PageTint.Dark, 0, 0, 0));
+var link = PageTinter.Map(PageTint.Dark, 0x1A, 0x5F, 0xD0); // a blue link
+Check("dark: blue stays blue", link.B > link.R + 40 && link.B > link.G, $"{link}");
+var px = new byte[] { 255, 255, 255, 255, 0, 0, 0, 128 };
+PageTinter.Apply(px, PageTint.Dark);
+Check("apply works on BGRA and keeps alpha", px[0] == PageTinter.DarkPaper && px[3] == 255 && px[4] == PageTinter.DarkInk && px[7] == 128);
 
 Console.WriteLine();
 Console.WriteLine($"{passed} passed, {failed} failed");

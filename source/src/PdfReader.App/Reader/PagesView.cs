@@ -24,7 +24,7 @@ internal sealed class PageSlot : Grid
         PageNumber = pageNumber;
         PageWidth = Math.Max(1, width);
         PageHeight = Math.Max(1, height);
-        Background = Brushes.White;
+        SetResourceReference(BackgroundProperty, "PageBlankBrush"); // white, or the theme's page colour
         Cursor = Cursors.Hand;
         Effect = new DropShadowEffect { BlurRadius = 14, ShadowDepth = 1, Opacity = 0.16, Color = Colors.Black };
         HorizontalAlignment = HorizontalAlignment.Center;
@@ -66,6 +66,15 @@ internal sealed class PageSlot : Grid
             _image.Source = bitmap;
             _renderedPx = px;
         }
+    }
+
+    /// <summary>The page colours changed: draw again next time, keeping the old picture until then.</summary>
+    public void Invalidate()
+    {
+        _cts?.Cancel();
+        _cts = null;
+        _pendingPx = 0;
+        _renderedPx = 0;
     }
 
     public void Release()
@@ -315,6 +324,13 @@ public sealed class PagesView : Grid
 
     // ---- rendering -------------------------------------------------------------------------------
 
+    /// <summary>Redraws the pages (after the page colours changed).</summary>
+    public void Redraw()
+    {
+        foreach (var slot in _slots) slot.Invalidate();
+        RenderVisible();
+    }
+
     private void ScheduleRender()
     {
         _renderTimer.Stop();
@@ -367,7 +383,7 @@ public sealed class PagesView : Grid
         // warm screens (Night light) because it sits on top of the page; the underline stays easy to see.
         while (_sentenceMarks.Count < lines.Count * 2)
         {
-            var band = MakeMark(Color.FromArgb(0x8C, 0xFF, 0xD5, 0x4F), null, 0, 3);
+            var band = MakeMark(SentenceBandColor, null, 0, 3);
             var line = MakeMark(Color.FromArgb(0xFF, 0xE0, 0x9A, 0x00), null, 0, 1);
             Panel.SetZIndex(band, 1);
             Panel.SetZIndex(line, 1);
@@ -388,6 +404,21 @@ public sealed class PagesView : Grid
                 Hide(_sentenceMarks[i * 2 + 1]);
             }
         }
+    }
+
+    private bool _darkPages;
+
+    // Dark pages have light text, so the band is fainter there to keep the words readable.
+    private Color SentenceBandColor => _darkPages ? Color.FromArgb(0x55, 0xFF, 0xB8, 0x00) : Color.FromArgb(0x8C, 0xFF, 0xD5, 0x4F);
+
+    /// <summary>The pages are drawn dark (Dark theme): use highlight colours that suit light text.</summary>
+    public void SetDarkPages(bool dark)
+    {
+        if (_darkPages == dark) return;
+        _darkPages = dark;
+        var brush = new SolidColorBrush(SentenceBandColor);
+        brush.Freeze();
+        for (int i = 0; i < _sentenceMarks.Count; i += 2) _sentenceMarks[i].Fill = brush;
     }
 
     private void HideSentence()

@@ -273,6 +273,7 @@ public sealed class WordListWindow : Window
         MinHeight = 320;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Background = (Brush)Application.Current.FindResource("PaperBrush");
+        Foreground = (Brush)Application.Current.FindResource("InkBrush");
         FontFamily = (FontFamily)Application.Current.FindResource("UiFont");
 
         var root = new DockPanel { Margin = new Thickness(22, 18, 22, 16) };

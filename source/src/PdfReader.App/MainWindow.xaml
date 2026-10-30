@@ -7,7 +7,8 @@
         Width="1180" Height="860" MinWidth="820" MinHeight="500"
         WindowStartupLocation="CenterScreen"
         Icon="app.ico"
-        Background="{StaticResource PaperBrush}"
+        Background="{DynamicResource PaperBrush}"
+        Foreground="{DynamicResource InkBrush}"
         FontFamily="{StaticResource UiFont}"
         AllowDrop="True"
         UseLayoutRounding="True"
@@ -29,7 +30,7 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource HoverBrush}" />
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource HoverBrush}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -44,23 +45,23 @@
                     </ContextMenu>
                 </Button.ContextMenu>
                 <StackPanel>
-                    <Border Height="236" CornerRadius="6" Background="White" BorderBrush="{StaticResource ChromeBorderBrush}" BorderThickness="1" ClipToBounds="True">
+                    <Border Height="236" CornerRadius="6" Background="White" BorderBrush="{DynamicResource ChromeBorderBrush}" BorderThickness="1" ClipToBounds="True">
                         <Border.Effect>
                             <DropShadowEffect BlurRadius="10" ShadowDepth="1" Opacity="0.12" />
                         </Border.Effect>
                         <Grid>
-                            <TextBlock Text="{Binding Initial}" FontSize="54" FontWeight="SemiBold" Foreground="{StaticResource ChromeBorderBrush}"
+                            <TextBlock Text="{Binding Initial}" FontSize="54" FontWeight="SemiBold" Foreground="{DynamicResource ChromeBorderBrush}"
                                        HorizontalAlignment="Center" VerticalAlignment="Center" />
                             <Image Source="{Binding Cover}" Stretch="UniformToFill" VerticalAlignment="Top" RenderOptions.BitmapScalingMode="HighQuality" />
                         </Grid>
                     </Border>
                     <ProgressBar Height="4" Margin="0,8,0,0" Minimum="0" Maximum="100" Value="{Binding ProgressPercent, Mode=OneWay}"
-                                 Foreground="{StaticResource AccentBrush}" Background="{StaticResource ChromeBorderBrush}" BorderThickness="0"
+                                 Foreground="{DynamicResource AccentBrush}" Background="{DynamicResource ChromeBorderBrush}" BorderThickness="0"
                                  Visibility="{Binding ShowProgress, Converter={StaticResource BoolToVisible}}" />
-                    <TextBlock Text="{Binding Title}" FontSize="13.5" FontWeight="SemiBold" Foreground="{StaticResource InkBrush}" Margin="0,8,0,0"
+                    <TextBlock Text="{Binding Title}" FontSize="13.5" FontWeight="SemiBold" Foreground="{DynamicResource InkBrush}" Margin="0,8,0,0"
                                TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxHeight="38" />
-                    <TextBlock Text="{Binding Subtitle}" FontSize="12" Foreground="{StaticResource MutedInkBrush}" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" />
-                    <TextBlock Text="{Binding LastRead}" FontSize="11.5" Foreground="{StaticResource MutedInkBrush}" Margin="0,1,0,0" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{Binding Subtitle}" FontSize="12" Foreground="{DynamicResource MutedInkBrush}" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{Binding LastRead}" FontSize="11.5" Foreground="{DynamicResource MutedInkBrush}" Margin="0,1,0,0" TextTrimming="CharacterEllipsis" />
                 </StackPanel>
             </Button>
         </DataTemplate>
@@ -74,7 +75,7 @@
         </Grid.RowDefinitions>
 
         <!-- ===== Top bar: open, title, view, options, voice, speed ===== -->
-        <Border Grid.Row="0" Background="{StaticResource ChromeBrush}" BorderBrush="{StaticResource ChromeBorderBrush}"
+        <Border Grid.Row="0" Background="{DynamicResource ChromeBrush}" BorderBrush="{DynamicResource ChromeBorderBrush}"
                 BorderThickness="0,0,0,1" Padding="14,10">
             <DockPanel LastChildFill="True">
                 <ToggleButton x:Name="LibraryButton" DockPanel.Dock="Left" Style="{StaticResource ToolToggle}" Margin="0,0,8,0"
@@ -103,7 +104,7 @@
 
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
                     <!-- Page | Text -->
-                    <Border Background="{StaticResource PaperBrush}" CornerRadius="10" Padding="3" Margin="0,0,10,0">
+                    <Border Background="{DynamicResource PaperBrush}" CornerRadius="10" Padding="3" Margin="0,0,10,0">
                         <StackPanel Orientation="Horizontal">
                             <ToggleButton x:Name="PageModeButton" Style="{StaticResource ToolToggle}" Padding="12,5"
                                           Click="OnPageModeClick" ToolTip="Show the real PDF pages">
@@ -122,6 +123,34 @@
                         </StackPanel>
                     </Border>
 
+                    <!-- Theme -->
+                    <ToggleButton x:Name="ThemeButton" Style="{StaticResource ToolToggle}" Padding="9,6" Margin="0,0,6,0"
+                                  ToolTip="Theme: light, sepia or dark">
+                        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE790;" FontSize="13" VerticalAlignment="Center" />
+                    </ToggleButton>
+                    <Popup x:Name="ThemePopup" PlacementTarget="{Binding ElementName=ThemeButton}" Placement="Bottom"
+                           StaysOpen="False" AllowsTransparency="True" VerticalOffset="6"
+                           IsOpen="{Binding IsChecked, ElementName=ThemeButton, Mode=TwoWay}">
+                        <Border Background="{DynamicResource ChromeBrush}" BorderBrush="{DynamicResource ChromeBorderBrush}" BorderThickness="1"
+                                CornerRadius="10" Padding="16,14" Margin="0,0,10,10">
+                            <Border.Effect>
+                                <DropShadowEffect BlurRadius="18" ShadowDepth="2" Opacity="0.18" />
+                            </Border.Effect>
+                            <StackPanel Width="250">
+                                <TextBlock Text="Theme" FontWeight="SemiBold" FontSize="13" Foreground="{DynamicResource InkBrush}" Margin="0,0,0,8" />
+                                <RadioButton x:Name="LightThemeRadio" GroupName="Theme" Content="Light" Margin="0,4" Checked="OnThemeChanged" />
+                                <RadioButton x:Name="SepiaThemeRadio" GroupName="Theme" Content="Sepia" Margin="0,4" Checked="OnThemeChanged" />
+                                <RadioButton x:Name="DarkThemeRadio" GroupName="Theme" Content="Dark" Margin="0,4" Checked="OnThemeChanged" />
+                                <Rectangle Height="1" Fill="{DynamicResource ChromeBorderBrush}" Margin="0,10" />
+                                <CheckBox x:Name="MatchPagesCheck" Margin="0,4" Checked="OnMatchPagesChanged" Unchecked="OnMatchPagesChanged">
+                                    <TextBlock TextWrapping="Wrap" Text="Recolour the PDF pages to match (sepia paper, dark pages)" />
+                                </CheckBox>
+                                <TextBlock Text="In dark pages, pictures can look unusual. Turn this off to see the original colours."
+                                           Style="{StaticResource ChromeText}" FontSize="12" Margin="0,8,0,0" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Border>
+                    </Popup>
+
                     <!-- Reading options -->
                     <ToggleButton x:Name="OptionsButton" Style="{StaticResource ToolToggle}" Margin="0,0,10,0"
                                   ToolTip="Choose what is read aloud">
@@ -134,21 +163,21 @@
                     <Popup x:Name="OptionsPopup" PlacementTarget="{Binding ElementName=OptionsButton}" Placement="Bottom"
                            StaysOpen="False" AllowsTransparency="True" VerticalOffset="6"
                            IsOpen="{Binding IsChecked, ElementName=OptionsButton, Mode=TwoWay}">
-                        <Border Background="{StaticResource ChromeBrush}" BorderBrush="{StaticResource ChromeBorderBrush}" BorderThickness="1"
+                        <Border Background="{DynamicResource ChromeBrush}" BorderBrush="{DynamicResource ChromeBorderBrush}" BorderThickness="1"
                                 CornerRadius="10" Padding="16,14" Margin="0,0,10,10">
                             <Border.Effect>
                                 <DropShadowEffect BlurRadius="18" ShadowDepth="2" Opacity="0.18" />
                             </Border.Effect>
                             <StackPanel Width="280">
-                                <TextBlock Text="Don't read aloud" FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource InkBrush}" Margin="0,0,0,8" />
+                                <TextBlock Text="Don't read aloud" FontWeight="SemiBold" FontSize="13" Foreground="{DynamicResource InkBrush}" Margin="0,0,0,8" />
                                 <CheckBox x:Name="SkipHeadersCheck" Content="Page headers, footers &amp; page numbers" Margin="0,4" Checked="OnReadingOptionChanged" Unchecked="OnReadingOptionChanged" />
                                 <CheckBox x:Name="SkipFootnotesCheck" Content="Footnotes" Margin="0,4" Checked="OnReadingOptionChanged" Unchecked="OnReadingOptionChanged" />
                                 <CheckBox x:Name="SkipTocCheck" Content="Table of contents pages" Margin="0,4" Checked="OnReadingOptionChanged" Unchecked="OnReadingOptionChanged" />
                                 <CheckBox x:Name="SkipCaptionsCheck" Content="Picture captions" Margin="0,4" Checked="OnReadingOptionChanged" Unchecked="OnReadingOptionChanged" />
-                                <Rectangle Height="1" Fill="{StaticResource ChromeBorderBrush}" Margin="0,10" />
+                                <Rectangle Height="1" Fill="{DynamicResource ChromeBorderBrush}" Margin="0,10" />
                                 <CheckBox x:Name="PauseHeadingsCheck" Content="Pause briefly around headings" Margin="0,4" Checked="OnReadingOptionChanged" Unchecked="OnReadingOptionChanged" />
-                                <Rectangle Height="1" Fill="{StaticResource ChromeBorderBrush}" Margin="0,10" />
-                                <TextBlock Text="Pronunciation" FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource InkBrush}" Margin="0,0,0,6" />
+                                <Rectangle Height="1" Fill="{DynamicResource ChromeBorderBrush}" Margin="0,10" />
+                                <TextBlock Text="Pronunciation" FontWeight="SemiBold" FontSize="13" Foreground="{DynamicResource InkBrush}" Margin="0,0,0,6" />
                                 <CheckBox x:Name="SmartPronunciationCheck" Margin="0,4" Checked="OnPronunciationChanged" Unchecked="OnPronunciationChanged">
                                     <TextBlock TextWrapping="Wrap" Text="Read abbreviations, code names (AudioSource), file types (.wav) and links naturally" />
                                 </CheckBox>
@@ -171,12 +200,12 @@
                             Minimum="0.5" Maximum="2.5" Value="1" TickFrequency="0.1" IsSnapToTickEnabled="True"
                             Focusable="False" ValueChanged="OnSpeedChanged" />
                     <TextBlock x:Name="SpeedLabel" Style="{StaticResource ChromeText}" Text="1.0×" Width="40"
-                               Margin="8,0,0,0" Foreground="{StaticResource InkBrush}" />
+                               Margin="8,0,0,0" Foreground="{DynamicResource InkBrush}" />
                 </StackPanel>
 
                 <StackPanel Margin="16,0" VerticalAlignment="Center">
                     <TextBlock x:Name="BookTitle" Text="No book open" FontSize="15" FontWeight="SemiBold"
-                               Foreground="{StaticResource InkBrush}" TextTrimming="CharacterEllipsis" />
+                               Foreground="{DynamicResource InkBrush}" TextTrimming="CharacterEllipsis" />
                     <TextBlock x:Name="BookInfo" Style="{StaticResource ChromeText}" FontSize="12" Text="Open a PDF to start" TextTrimming="CharacterEllipsis" />
                 </StackPanel>
             </DockPanel>
@@ -189,11 +218,11 @@
             </Grid.ColumnDefinitions>
 
             <!-- ===== Sidebar: Contents | Search ===== -->
-            <Border x:Name="Sidebar" Grid.Column="0" Visibility="Collapsed" Background="{StaticResource ChromeBrush}"
-                    BorderBrush="{StaticResource ChromeBorderBrush}" BorderThickness="0,0,1,0">
+            <Border x:Name="Sidebar" Grid.Column="0" Visibility="Collapsed" Background="{DynamicResource ChromeBrush}"
+                    BorderBrush="{DynamicResource ChromeBorderBrush}" BorderThickness="0,0,1,0">
                 <DockPanel>
                     <Border DockPanel.Dock="Top" Padding="10,10,10,6">
-                        <Border Background="{StaticResource PaperBrush}" CornerRadius="10" Padding="3" HorizontalAlignment="Left">
+                        <Border Background="{DynamicResource PaperBrush}" CornerRadius="10" Padding="3" HorizontalAlignment="Left">
                             <StackPanel Orientation="Horizontal">
                                 <ToggleButton x:Name="ContentsTab" Style="{StaticResource ToolToggle}" Padding="14,5" Content="Contents" Click="OnContentsTabClick" />
                                 <ToggleButton x:Name="SearchTab" Style="{StaticResource ToolToggle}" Padding="14,5" Content="Search" Click="OnSearchTabClick" />
@@ -214,9 +243,9 @@
                                     <DataTemplate DataType="{x:Type r:OutlineItem}">
                                         <DockPanel Margin="{Binding Indent}">
                                             <TextBlock DockPanel.Dock="Right" Text="{Binding PageLabel}" Margin="10,0,0,0" FontSize="12"
-                                                       Foreground="{StaticResource MutedInkBrush}" VerticalAlignment="Top" />
+                                                       Foreground="{DynamicResource MutedInkBrush}" VerticalAlignment="Top" />
                                             <TextBlock x:Name="Title" Text="{Binding Title}" TextWrapping="Wrap" FontSize="13.5"
-                                                       Foreground="{StaticResource InkBrush}" />
+                                                       Foreground="{DynamicResource InkBrush}" />
                                         </DockPanel>
                                         <DataTemplate.Triggers>
                                             <DataTrigger Binding="{Binding IsTopLevel}" Value="True">
@@ -255,9 +284,9 @@
                                             <DockPanel>
                                                 <Button DockPanel.Dock="Right" Style="{StaticResource ToolButton}" Padding="6,2" FontFamily="{StaticResource IconFont}"
                                                         FontSize="10" Content="&#xE711;" ToolTip="Delete bookmark" Click="OnDeleteBookmarkClick" Tag="{Binding}" />
-                                                <TextBlock Text="{Binding PageLabel}" FontSize="11.5" FontWeight="SemiBold" Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" />
+                                                <TextBlock Text="{Binding PageLabel}" FontSize="11.5" FontWeight="SemiBold" Foreground="{DynamicResource AccentBrush}" VerticalAlignment="Center" />
                                             </DockPanel>
-                                            <TextBlock Text="{Binding Snippet}" TextWrapping="Wrap" FontSize="12.5" Foreground="{StaticResource MutedInkBrush}" Margin="0,2,0,6" />
+                                            <TextBlock Text="{Binding Snippet}" TextWrapping="Wrap" FontSize="12.5" Foreground="{DynamicResource MutedInkBrush}" Margin="0,2,0,6" />
                                             <Grid>
                                                 <TextBox Text="{Binding Note, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource FieldBox}" FontSize="13"
                                                          AcceptsReturn="True" TextWrapping="Wrap" MinHeight="30" Padding="6,4" Tag="{Binding}" />
@@ -291,10 +320,10 @@
                                 <ListBox.ItemTemplate>
                                     <DataTemplate DataType="{x:Type r:SearchItem}">
                                         <StackPanel>
-                                            <TextBlock Text="{Binding PageLabel}" FontSize="11.5" Foreground="{StaticResource MutedInkBrush}" Margin="0,0,0,2" />
-                                            <TextBlock TextWrapping="Wrap" FontSize="13" Foreground="{StaticResource InkBrush}">
+                                            <TextBlock Text="{Binding PageLabel}" FontSize="11.5" Foreground="{DynamicResource MutedInkBrush}" Margin="0,0,0,2" />
+                                            <TextBlock TextWrapping="Wrap" FontSize="13" Foreground="{DynamicResource InkBrush}">
                                                 <Run Text="{Binding Before, Mode=OneWay}" /><Run Text="{Binding Match, Mode=OneWay}" FontWeight="Bold"
-                                                     Background="{StaticResource ReadingWordBrush}" /><Run Text="{Binding After, Mode=OneWay}" />
+                                                     Background="{DynamicResource ReadingWordBrush}" /><Run Text="{Binding After, Mode=OneWay}" />
                                             </TextBlock>
                                         </StackPanel>
                                     </DataTemplate>
@@ -307,12 +336,12 @@
 
             <Grid Grid.Column="1">
             <!-- ===== Page view (the real PDF pages) ===== -->
-            <r:PagesView x:Name="PagesViewControl" Visibility="Collapsed" Background="{StaticResource PageBackdropBrush}" />
+            <r:PagesView x:Name="PagesViewControl" Visibility="Collapsed" Background="{DynamicResource PageBackdropBrush}" />
 
             <!-- ===== Text view (clean text, headings, pictures) ===== -->
             <ListBox x:Name="ReaderList" Visibility="Collapsed"
                      Background="Transparent" BorderThickness="0" Padding="0"
-                     FontFamily="{StaticResource ReadingFont}" FontSize="19" Foreground="{StaticResource InkBrush}"
+                     FontFamily="{StaticResource ReadingFont}" FontSize="19" Foreground="{DynamicResource InkBrush}"
                      Focusable="False"
                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                      ScrollViewer.CanContentScroll="True"
@@ -348,29 +377,29 @@
                             <DataTrigger Binding="{Binding Kind}" Value="Footnote">
                                 <Setter TargetName="Text" Property="FontSize"
                                         Value="{Binding FontSize, RelativeSource={RelativeSource AncestorType=ListBox}, Converter={StaticResource Multiply}, ConverterParameter=0.78}" />
-                                <Setter TargetName="Text" Property="Foreground" Value="{StaticResource MutedInkBrush}" />
+                                <Setter TargetName="Text" Property="Foreground" Value="{DynamicResource MutedInkBrush}" />
                             </DataTrigger>
                             <DataTrigger Binding="{Binding Kind}" Value="Caption">
                                 <Setter TargetName="Text" Property="FontSize"
                                         Value="{Binding FontSize, RelativeSource={RelativeSource AncestorType=ListBox}, Converter={StaticResource Multiply}, ConverterParameter=0.8}" />
                                 <Setter TargetName="Text" Property="FontStyle" Value="Italic" />
-                                <Setter TargetName="Text" Property="Foreground" Value="{StaticResource MutedInkBrush}" />
+                                <Setter TargetName="Text" Property="Foreground" Value="{DynamicResource MutedInkBrush}" />
                             </DataTrigger>
                             <DataTrigger Binding="{Binding Kind}" Value="TableOfContents">
                                 <Setter TargetName="Text" Property="FontSize"
                                         Value="{Binding FontSize, RelativeSource={RelativeSource AncestorType=ListBox}, Converter={StaticResource Multiply}, ConverterParameter=0.85}" />
-                                <Setter TargetName="Text" Property="Foreground" Value="{StaticResource MutedInkBrush}" />
+                                <Setter TargetName="Text" Property="Foreground" Value="{DynamicResource MutedInkBrush}" />
                                 <Setter TargetName="Bd" Property="Padding" Value="20,2" />
                             </DataTrigger>
                             <DataTrigger Binding="{Binding HasBookmark}" Value="True">
-                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
                             <Setter TargetName="Bd" Property="BorderThickness" Value="3,0,0,0" />
                         </DataTrigger>
                         <DataTrigger Binding="{Binding IsSkipped}" Value="True">
                                 <Setter TargetName="Bd" Property="Opacity" Value="0.8" />
                             </DataTrigger>
                             <DataTrigger Binding="{Binding IsActive}" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource ActiveParagraphBrush}" />
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ActiveParagraphBrush}" />
                             </DataTrigger>
                         </DataTemplate.Triggers>
                     </DataTemplate>
@@ -379,7 +408,7 @@
                         <Border MaxWidth="840" Margin="24,10" Padding="20,0">
                             <Viewbox StretchDirection="DownOnly" Stretch="Uniform" HorizontalAlignment="Center">
                                 <Border Width="{Binding DisplayWidth}" Height="{Binding DisplayHeight}" Background="White"
-                                        BorderBrush="{StaticResource ChromeBorderBrush}" BorderThickness="1">
+                                        BorderBrush="{DynamicResource ChromeBorderBrush}" BorderThickness="1">
                                     <Image Source="{Binding Bitmap}" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality" />
                                 </Border>
                             </Viewbox>
@@ -393,10 +422,10 @@
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
-                            <Rectangle Height="1" Fill="{StaticResource ChromeBorderBrush}" VerticalAlignment="Center" />
+                            <Rectangle Height="1" Fill="{DynamicResource ChromeBorderBrush}" VerticalAlignment="Center" />
                             <TextBlock Grid.Column="1" Text="{Binding Label}" Margin="14,0" FontFamily="{StaticResource UiFont}"
-                                       FontSize="12" Foreground="{StaticResource MutedInkBrush}" />
-                            <Rectangle Grid.Column="2" Height="1" Fill="{StaticResource ChromeBorderBrush}" VerticalAlignment="Center" />
+                                       FontSize="12" Foreground="{DynamicResource MutedInkBrush}" />
+                            <Rectangle Grid.Column="2" Height="1" Fill="{DynamicResource ChromeBorderBrush}" VerticalAlignment="Center" />
                         </Grid>
                     </DataTemplate>
                 </ListBox.Resources>
@@ -405,24 +434,24 @@
             <!-- Empty state -->
             <StackPanel x:Name="EmptyState" HorizontalAlignment="Center" VerticalAlignment="Center">
                 <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE736;" FontSize="54" HorizontalAlignment="Center"
-                           Foreground="{StaticResource MutedInkBrush}" Margin="0,0,0,18" />
+                           Foreground="{DynamicResource MutedInkBrush}" Margin="0,0,0,18" />
                 <TextBlock Text="Open a PDF to start reading" FontSize="22" FontWeight="SemiBold" HorizontalAlignment="Center"
-                           Foreground="{StaticResource InkBrush}" />
+                           Foreground="{DynamicResource InkBrush}" />
                 <TextBlock Text="or drag a PDF file onto this window" FontSize="14" HorizontalAlignment="Center"
-                           Foreground="{StaticResource MutedInkBrush}" Margin="0,6,0,22" />
+                           Foreground="{DynamicResource MutedInkBrush}" Margin="0,6,0,22" />
                 <Button Style="{StaticResource AccentButton}" HorizontalAlignment="Center" Padding="20,10" Click="OnOpenClick">
                     <TextBlock Text="Browse…" FontSize="14" />
                 </Button>
             </StackPanel>
 
             <!-- Loading -->
-            <Grid x:Name="LoadingPanel" Visibility="Collapsed" Background="#B3FBF8F1">
-                <Border Background="{StaticResource ChromeBrush}" BorderBrush="{StaticResource ChromeBorderBrush}" BorderThickness="1"
+            <Grid x:Name="LoadingPanel" Visibility="Collapsed" Background="{DynamicResource OverlayBrush}">
+                <Border Background="{DynamicResource ChromeBrush}" BorderBrush="{DynamicResource ChromeBorderBrush}" BorderThickness="1"
                         CornerRadius="12" Padding="28,22" HorizontalAlignment="Center" VerticalAlignment="Center">
                     <StackPanel Width="300">
-                        <TextBlock x:Name="LoadingText" Text="Reading pages…" FontSize="15" Foreground="{StaticResource InkBrush}" />
+                        <TextBlock x:Name="LoadingText" Text="Reading pages…" FontSize="15" Foreground="{DynamicResource InkBrush}" />
                         <ProgressBar x:Name="LoadingProgress" Height="6" Margin="0,14,0,16" Minimum="0" Maximum="1"
-                                     Foreground="{StaticResource AccentBrush}" Background="{StaticResource HoverBrush}" BorderThickness="0" />
+                                     Foreground="{DynamicResource AccentBrush}" Background="{DynamicResource HoverBrush}" BorderThickness="0" />
                         <Button Style="{StaticResource ToolButton}" HorizontalAlignment="Right" Content="Cancel" Click="OnCancelLoadClick" />
                     </StackPanel>
                 </Border>
@@ -441,7 +470,7 @@
         </Grid>
 
         <!-- ===== Library (home screen) ===== -->
-        <Grid x:Name="LibraryPanel" Grid.Row="1" Visibility="Collapsed" Background="{StaticResource PaperBrush}">
+        <Grid x:Name="LibraryPanel" Grid.Row="1" Visibility="Collapsed" Background="{DynamicResource PaperBrush}">
             <ScrollViewer x:Name="LibraryScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Focusable="False">
                 <StackPanel Margin="44,28,44,44" MaxWidth="1500">
                     <DockPanel Margin="8,0,8,18">
@@ -458,16 +487,16 @@
                                 </StackPanel>
                             </Button>
                         </StackPanel>
-                        <TextBlock Text="Library" FontSize="28" FontWeight="SemiBold" Foreground="{StaticResource InkBrush}" VerticalAlignment="Center" />
+                        <TextBlock Text="Library" FontSize="28" FontWeight="SemiBold" Foreground="{DynamicResource InkBrush}" VerticalAlignment="Center" />
                     </DockPanel>
 
                     <!-- Hero when there's nothing yet -->
-                    <Border x:Name="LibraryHero" Background="{StaticResource ChromeBrush}" BorderBrush="{StaticResource ChromeBorderBrush}" BorderThickness="1"
+                    <Border x:Name="LibraryHero" Background="{DynamicResource ChromeBrush}" BorderBrush="{DynamicResource ChromeBorderBrush}" BorderThickness="1"
                             CornerRadius="14" Padding="34,30" Margin="8,0,8,24">
                         <StackPanel>
-                            <TextBlock Text="Open a PDF to start reading" FontSize="20" FontWeight="SemiBold" Foreground="{StaticResource InkBrush}" />
+                            <TextBlock Text="Open a PDF to start reading" FontSize="20" FontWeight="SemiBold" Foreground="{DynamicResource InkBrush}" />
                             <TextBlock Text="Books you open appear here with your progress. You can also pick a books folder and every PDF in it is listed below."
-                                       TextWrapping="Wrap" FontSize="14" Foreground="{StaticResource MutedInkBrush}" Margin="0,6,0,18" />
+                                       TextWrapping="Wrap" FontSize="14" Foreground="{DynamicResource MutedInkBrush}" Margin="0,6,0,18" />
                             <StackPanel Orientation="Horizontal">
                                 <Button Style="{StaticResource AccentButton}" Padding="18,9" Click="OnOpenClick" Content="Open a PDF…" />
                                 <Button Style="{StaticResource ToolButton}" Padding="16,9" Margin="8,0,0,0" Click="OnChooseFolderClick" Content="Choose books folder…" />
@@ -475,7 +504,7 @@
                         </StackPanel>
                     </Border>
 
-                    <TextBlock x:Name="RecentHeader" Text="Continue reading" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource InkBrush}" Margin="8,0,8,10" />
+                    <TextBlock x:Name="RecentHeader" Text="Continue reading" FontSize="16" FontWeight="SemiBold" Foreground="{DynamicResource InkBrush}" Margin="8,0,8,10" />
                     <ItemsControl x:Name="RecentList" ItemTemplate="{StaticResource BookCardTemplate}" Focusable="False">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
@@ -495,7 +524,7 @@
                                     Content="Stop watching" ToolTip="Stop listing this folder's books" />
                         </StackPanel>
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                            <TextBlock Text="Books folder" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource InkBrush}" />
+                            <TextBlock Text="Books folder" FontSize="16" FontWeight="SemiBold" Foreground="{DynamicResource InkBrush}" />
                             <TextBlock x:Name="FolderPathText" Style="{StaticResource ChromeText}" Margin="12,2,0,0" TextTrimming="CharacterEllipsis" MaxWidth="520" />
                         </StackPanel>
                     </DockPanel>
@@ -510,7 +539,7 @@
         </Grid>
 
         <!-- ===== Transport bar ===== -->
-        <Border Grid.Row="2" Background="{StaticResource ChromeBrush}" BorderBrush="{StaticResource ChromeBorderBrush}"
+        <Border Grid.Row="2" Background="{DynamicResource ChromeBrush}" BorderBrush="{DynamicResource ChromeBorderBrush}"
                 BorderThickness="0,1,0,0" Padding="16,8">
             <Grid>
                 <Grid.ColumnDefinitions>
@@ -537,13 +566,13 @@
                     <Button x:Name="BookmarkButton" Style="{StaticResource ToolButton}" Click="OnAddBookmarkClick" Margin="0,0,2,0" Padding="9,7"
                             ToolTip="Add a bookmark here (Ctrl+D)">
                         <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE8A4;" FontSize="14"
-                                   VerticalAlignment="Center" Foreground="{StaticResource AccentBrush}" />
+                                   VerticalAlignment="Center" Foreground="{DynamicResource AccentBrush}" />
                     </Button>
                     <Button x:Name="FromCursorButton" Style="{StaticResource ToolButton}" Click="OnFromCursorClick"
                             ToolTip="Start reading from the word you clicked (or double-click a word)">
                         <StackPanel Orientation="Horizontal">
                             <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE768;" FontSize="11" Margin="0,0,7,0"
-                                       VerticalAlignment="Center" Foreground="{StaticResource AccentBrush}" />
+                                       VerticalAlignment="Center" Foreground="{DynamicResource AccentBrush}" />
                             <TextBlock Text="Read from cursor" VerticalAlignment="Center" />
                         </StackPanel>
                     </Button>
@@ -555,7 +584,7 @@
                     </StackPanel>
                     <TextBlock x:Name="ZoomLabel" Style="{StaticResource ChromeText}" Margin="10,0,0,0" ToolTip="Ctrl + mouse wheel to zoom" />
                     <CheckBox x:Name="FollowCheck" Content="Follow reading" IsChecked="True" Focusable="False"
-                              VerticalAlignment="Center" Margin="14,0,0,0" FontSize="13" Foreground="{StaticResource InkBrush}"
+                              VerticalAlignment="Center" Margin="14,0,0,0" FontSize="13" Foreground="{DynamicResource InkBrush}"
                               Checked="OnFollowChanged" Unchecked="OnFollowChanged"
                               ToolTip="Keep the word being read in view" />
                 </StackPanel>

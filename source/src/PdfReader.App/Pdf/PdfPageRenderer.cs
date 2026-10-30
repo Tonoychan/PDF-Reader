@@ -21,6 +21,9 @@ public sealed class PdfPageRenderer : IDisposable
 
     public int PageCount => (int)_doc.PageCount;
 
+    /// <summary>Recolouring for whole pages (theme). Pictures cut out for the text view keep their colours.</summary>
+    public PageTint Tint { get; set; }
+
     public static async Task<PdfPageRenderer> OpenAsync(string path)
     {
         var file = await StorageFile.GetFileFromPathAsync(Path.GetFullPath(path));
@@ -71,6 +74,13 @@ public sealed class PdfPageRenderer : IDisposable
             bitmap.StreamSource = memory;
             bitmap.EndInit();
             bitmap.Freeze();
+
+            var tint = Tint;
+            if (region is null && tint != PageTint.None)
+            {
+                ct.ThrowIfCancellationRequested();
+                return Recolour(bitmap, tint);
+            }
             return bitmap;
         }
         catch (OperationCanceledException)
@@ -102,4 +112,16 @@ public sealed class PdfPageRenderer : IDisposable
     }
 
     public void Dispose() => _disposed = true;
+
+    private static BitmapSource Recolour(BitmapSource source, PageTint tint)
+    {
+        var bgra = new FormatConvertedBitmap(source, System.Windows.Media.PixelFormats.Bgra32, null, 0);
+        int w = bgra.PixelWidth, h = bgra.PixelHeight, stride = w * 4;
+        var pixels = new byte[stride * h];
+        bgra.CopyPixels(pixels, stride, 0);
+        PageTinter.Apply(pixels, tint);
+        var result = BitmapSource.Create(w, h, source.DpiX, source.DpiY, System.Windows.Media.PixelFormats.Bgra32, null, pixels, stride);
+        result.Freeze();
+        return result;
+    }
 }

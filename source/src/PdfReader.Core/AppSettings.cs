@@ -32,6 +32,12 @@ public sealed class AppSettings
     public string? LibraryFolder { get; set; }
     /// <summary>"contents" or "search".</summary>
     public string SidebarTab { get; set; } = "contents";
+    /// <summary>"Light", "Sepia" or "Dark".</summary>
+    public string Theme { get; set; } = "Light";
+    /// <summary>Recolour the PDF pages to match the theme (sepia paper, dark pages).</summary>
+    public bool MatchPageColors { get; set; } = true;
+    /// <summary>The window was maximised when the app was closed.</summary>
+    public bool Maximized { get; set; }
     public Dictionary<string, SavedPosition> Positions { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     private const int MaxRememberedBooks = 200;
@@ -52,6 +58,7 @@ public sealed class AppSettings
             if (s.FontSize is < 10 or > 40 or double.NaN) s.FontSize = 19;
             if (s.PageZoom is < 0.2 or > 8 or double.NaN) s.PageZoom = null;
             if (s.ViewMode is not ("page" or "text")) s.ViewMode = "page";
+            if (s.Theme is not ("Light" or "Sepia" or "Dark")) s.Theme = "Light";
             s.Reading ??= new ReadingOptions();
             s.WordList = new Dictionary<string, string>(s.WordList ?? new(), StringComparer.OrdinalIgnoreCase);
             return s;

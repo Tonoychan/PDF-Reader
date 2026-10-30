@@ -27,6 +27,17 @@ public static class CoverCache
         return Path.Combine(Folder, key + ".png");
     }
 
+    /// <summary>The saved cover picture for a book, if it has been made.</summary>
+    public static string? SavedFile(string pdfPath)
+    {
+        try
+        {
+            string file = FileFor(pdfPath);
+            return File.Exists(file) ? file : null;
+        }
+        catch { return null; }
+    }
+
     public static async Task<ImageSource?> GetAsync(string pdfPath)
     {
         if (!File.Exists(pdfPath)) return null;

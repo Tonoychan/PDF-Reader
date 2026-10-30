@@ -1,9 +1,11 @@
+using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Shell;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using PdfReader.App.Library;
@@ -58,12 +60,19 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _notesSave;
     private bool _scanningFolder;
 
+    // Background listening: Windows media controls and taskbar buttons
+    private MediaSession? _media;
+    private ThumbButtonInfo? _thumbPrev, _thumbPlay, _thumbNext;
+    private ImageSource? _thumbPlayImage, _thumbPauseImage;
+
     public MainWindow(string? fileToOpen)
     {
         InitializeComponent();
 
         _settings = AppSettings.Load(_settingsPath);
         _library = LibraryStore.Load(_libraryPath);
+        Theme.Apply(_settings.Theme, _settings.MatchPageColors);
+        if (_settings.Maximized) WindowState = WindowState.Maximized;
         _notesSave = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
         _notesSave.Tick += (_, _) => { _notesSave.Stop(); _notes?.Save(BookNotes.DefaultFolder); };
         _narrator = new NarrationController(Dispatcher) { PauseAroundHeadings = _settings.Reading.PauseAroundHeadings };
@@ -114,6 +123,12 @@ public partial class MainWindow : Window
         SkipCaptionsCheck.IsChecked = _settings.Reading.SkipCaptions;
         PauseHeadingsCheck.IsChecked = _settings.Reading.PauseAroundHeadings;
         SmartPronunciationCheck.IsChecked = _settings.SmartPronunciation;
+
+        // Theme
+        (Theme.Normalize(_settings.Theme) switch { Theme.Sepia => SepiaThemeRadio, Theme.Dark => DarkThemeRadio, _ => LightThemeRadio }).IsChecked = true;
+        MatchPagesCheck.IsChecked = _settings.MatchPageColors;
+        PagesViewControl.SetDarkPages(Theme.TintFor(_settings.Theme, _settings.MatchPageColors) == PageTint.Dark);
+        SourceInitialized += OnSourceInitialized;
 
         // Text view interaction
         ReaderList.AddHandler(WordTextBlock.WordClickedEvent, new WordClickedEventHandler(OnTextWordClicked));
@@ -314,15 +329,21 @@ public partial class MainWindow : Window
         BookInfo.Text = "Open a PDF to start";
         Title = "PDF Reader";
         _notes = null;
+        _media?.Clear();
         RefreshBookmarks();
         ApplyViewMode();
         UpdateUi();
         ShowLibrary();
     }
 
-    private static async Task<PdfPageRenderer?> OpenRendererAsync(string path)
+    private async Task<PdfPageRenderer?> OpenRendererAsync(string path)
     {
-        try { return await PdfPageRenderer.OpenAsync(path); }
+        try
+        {
+            var renderer = await PdfPageRenderer.OpenAsync(path);
+            renderer.Tint = Theme.TintFor(_settings.Theme, _settings.MatchPageColors);
+            return renderer;
+        }
         catch { return null; } // page view unavailable; the text view still works
     }
 
@@ -391,6 +412,7 @@ public partial class MainWindow : Window
         _notes = BookNotes.Load(BookNotes.DefaultFolder, book.FilePath);
         RefreshBookmarks();
         HideLibrary(force: true);
+        _ = EnsureCoverAsync(book.FilePath);
 
         var saved = _settings.Recall(book.FilePath, book);
         _narrator.Load(book, saved ?? ReadingPosition.Start, p => _settings.Reading.IsSpoken(p));
@@ -518,6 +540,7 @@ public partial class MainWindow : Window
         FollowReading(force: false);
         SyncContents();
         UpdatePageBox();
+        UpdateMedia();
     }
 
     private void OnNarrationStateChanged()
@@ -1550,6 +1573,7 @@ public partial class MainWindow : Window
             ? Visibility.Visible : Visibility.Collapsed;
 
         UpdateStatus();
+        UpdateMedia();
     }
 
     private void UpdateStatus()
@@ -1604,12 +1628,155 @@ public partial class MainWindow : Window
     {
         _loadCts?.Cancel();
         SaveProgress();
+        _settings.Maximized = WindowState == WindowState.Maximized;
         _settings.Save(_settingsPath);
         _narrator.Dispose();
         _renderer?.Dispose();
         _notesSave.Stop();
         _notes?.Save(BookNotes.DefaultFolder);
         _library.Save(_libraryPath);
+    }
+
+    // ===== Background listening: media keys, Windows media panel, taskbar buttons ================
+
+    private void OnSourceInitialized(object? sender, EventArgs e)
+    {
+        Theme.ApplyTitleBar(this);
+        _media = MediaSession.TryCreate(new System.Windows.Interop.WindowInteropHelper(this).Handle, Dispatcher);
+        if (_media is not null) _media.ButtonPressed += OnMediaButton;
+        SetUpTaskbarButtons();
+        UpdateMedia();
+    }
+
+    private void OnMediaButton(global::Windows.Media.SystemMediaTransportControlsButton button)
+    {
+        switch (button)
+        {
+            case global::Windows.Media.SystemMediaTransportControlsButton.Play:
+                if (_narrator.State != NarrationState.Playing) TogglePlay();
+                break;
+            case global::Windows.Media.SystemMediaTransportControlsButton.Pause:
+                if (_narrator.State == NarrationState.Playing) _narrator.Pause();
+                break;
+            case global::Windows.Media.SystemMediaTransportControlsButton.Stop:
+                StopReading();
+                break;
+            case global::Windows.Media.SystemMediaTransportControlsButton.Next:
+                Skip(+1);
+                break;
+            case global::Windows.Media.SystemMediaTransportControlsButton.Previous:
+                Skip(-1);
+                break;
+        }
+    }
+
+    /// <summary>Previous / Play-Pause / Next under the taskbar thumbnail.</summary>
+    private void SetUpTaskbarButtons()
+    {
+        var ink = TaskbarUsesLightTheme() ? Color.FromRgb(0x20, 0x20, 0x20) : Colors.White;
+        _thumbPlayImage = GlyphImage("\uE768", ink);
+        _thumbPauseImage = GlyphImage("\uE769", ink);
+        _thumbPrev = new ThumbButtonInfo { Description = "Previous paragraph", ImageSource = GlyphImage("\uE892", ink), DismissWhenClicked = false };
+        _thumbPlay = new ThumbButtonInfo { Description = "Play", ImageSource = _thumbPlayImage, DismissWhenClicked = false };
+        _thumbNext = new ThumbButtonInfo { Description = "Next paragraph", ImageSource = GlyphImage("\uE893", ink), DismissWhenClicked = false };
+        _thumbPrev.Click += (_, _) => Skip(-1);
+        _thumbPlay.Click += (_, _) => TogglePlay();
+        _thumbNext.Click += (_, _) => Skip(+1);
+        TaskbarItemInfo = new TaskbarItemInfo
+        {
+            ThumbButtonInfos = new ThumbButtonInfoCollection { _thumbPrev, _thumbPlay, _thumbNext },
+        };
+    }
+
+    private static bool TaskbarUsesLightTheme()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+            return key?.GetValue("SystemUsesLightTheme") is int v && v == 1;
+        }
+        catch { return false; }
+    }
+
+    /// <summary>An icon-font glyph as a small picture (for the taskbar buttons).</summary>
+    private ImageSource GlyphImage(string glyph, Color color)
+    {
+        var brush = new SolidColorBrush(color);
+        brush.Freeze();
+        var typeface = new Typeface((FontFamily)FindResource("IconFont"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
+        var text = new FormattedText(glyph, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, typeface, 16, brush,
+            VisualTreeHelper.GetDpi(this).PixelsPerDip);
+        var group = new DrawingGroup();
+        group.Children.Add(new GeometryDrawing(Brushes.Transparent, null, new RectangleGeometry(new Rect(0, 0, 16, 16))));
+        group.Children.Add(new GeometryDrawing(brush, null, text.BuildGeometry(new Point((16 - text.Width) / 2, (16 - text.Height) / 2))));
+        var image = new DrawingImage(group);
+        image.Freeze();
+        return image;
+    }
+
+    /// <summary>Keeps the media panel and taskbar buttons in step with the reader.</summary>
+    private void UpdateMedia()
+    {
+        if (!_ready) return;
+        bool canSpeak = _book is not null && _narrator.Voice is not null;
+        bool playing = _narrator.State == NarrationState.Playing;
+        if (_thumbPlay is not null)
+        {
+            _thumbPlay.ImageSource = playing ? _thumbPauseImage : _thumbPlayImage;
+            _thumbPlay.Description = playing ? "Pause" : _narrator.State == NarrationState.Paused ? "Resume" : "Play";
+            _thumbPlay.IsEnabled = canSpeak;
+            _thumbPrev!.IsEnabled = canSpeak;
+            _thumbNext!.IsEnabled = canSpeak;
+        }
+
+        if (_media is null) return;
+        _media.SetState(_book is not null && !_book.IsEmpty, _narrator.State);
+        if (_book is { IsEmpty: false } book)
+            _media.SetInfo(book.Title, MediaSubtitle(book), CoverCache.SavedFile(book.FilePath));
+    }
+
+    /// <summary>"Chapter · Page 12 of 80" for the media panel.</summary>
+    private string MediaSubtitle(BookDocument book)
+    {
+        int para = Math.Clamp(_narrator.Position.ParagraphIndex, 0, book.Paragraphs.Count - 1);
+        string page = $"Page {book.Paragraphs[para].PageNumber} of {book.PageCount}";
+        int i = OutlineBuilder.EntryFor(book.Outline, para);
+        return i >= 0 && i < book.Outline.Count ? $"{book.Outline[i].Title} · {page}" : page;
+    }
+
+    private async Task EnsureCoverAsync(string pdfPath)
+    {
+        if (CoverCache.SavedFile(pdfPath) is null) await CoverCache.GetAsync(pdfPath);
+        UpdateMedia();
+    }
+
+    // ===== Theme ==================================================================================
+
+    private void OnThemeChanged(object sender, RoutedEventArgs e)
+    {
+        if (!_ready) return;
+        _settings.Theme = DarkThemeRadio.IsChecked == true ? Theme.Dark : SepiaThemeRadio.IsChecked == true ? Theme.Sepia : Theme.Light;
+        ApplyTheme();
+    }
+
+    private void OnMatchPagesChanged(object sender, RoutedEventArgs e)
+    {
+        if (!_ready) return;
+        _settings.MatchPageColors = MatchPagesCheck.IsChecked == true;
+        ApplyTheme();
+    }
+
+    private void ApplyTheme()
+    {
+        Theme.Apply(_settings.Theme, _settings.MatchPageColors);
+        var tint = Theme.TintFor(_settings.Theme, _settings.MatchPageColors);
+        PagesViewControl.SetDarkPages(tint == PageTint.Dark);
+        if (_renderer is not null && _renderer.Tint != tint)
+        {
+            _renderer.Tint = tint;
+            PagesViewControl.Redraw();
+        }
+        _settings.Save(_settingsPath);
     }
 
     // ===== Visual tree helpers ===================================================================

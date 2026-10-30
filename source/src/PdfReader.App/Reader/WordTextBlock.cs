@@ -39,6 +39,7 @@ public sealed class WordTextBlock : TextBlock
         "WordRightClicked", RoutingStrategy.Bubble, typeof(WordClickedEventHandler), typeof(WordTextBlock));
 
     private Run[] _wordRuns = Array.Empty<Run>();
+    private Run?[] _gapRuns = Array.Empty<Run?>();
     private readonly Dictionary<Run, int> _runToWord = new();
     private int _shownReading = -1;
     private int _shownReadingEnd = -1;
@@ -92,11 +93,12 @@ public sealed class WordTextBlock : TextBlock
         _runToWord.Clear();
         _shownReading = _shownReadingEnd = _shownCursor = -1;
         var item = Item;
-        if (item is null) { _wordRuns = Array.Empty<Run>(); return; }
+        if (item is null) { _wordRuns = Array.Empty<Run>(); _gapRuns = Array.Empty<Run?>(); return; }
 
         string text = item.Model.Text;
         var words = item.Model.Words;
         _wordRuns = new Run[words.Count];
+        _gapRuns = new Run?[words.Count];
         int pos = 0;
         for (int i = 0; i < words.Count; i++)
         {
@@ -105,6 +107,7 @@ public sealed class WordTextBlock : TextBlock
             {
                 var gap = new Run(text.Substring(pos, w.Start - pos));
                 _runToWord[gap] = i; // clicking a space picks the next word
+                _gapRuns[i] = gap;
                 Inlines.Add(gap);
             }
             var run = new Run(text.Substring(w.Start, w.Length));
@@ -167,6 +170,21 @@ public sealed class WordTextBlock : TextBlock
         else
         {
             run.TextDecorations = null;
+        }
+
+        // In a highlighted sentence the spaces between words are highlighted too, so it reads as one band.
+        if (index < _gapRuns.Length && _gapRuns[index] is { } gap)
+        {
+            if (index > _shownReading && IsReading(index) && _shownReadingEnd > _shownReading)
+            {
+                gap.Background = (Brush)FindResource("ReadingSentenceBrush");
+                gap.TextDecorations = SentenceDecoration;
+            }
+            else
+            {
+                gap.ClearValue(TextElement.BackgroundProperty);
+                gap.TextDecorations = null;
+            }
         }
     }
 

@@ -10,6 +10,10 @@ public partial class App : Application
         base.OnStartup(e);
         DispatcherUnhandledException += OnUnhandled;
 
+        // Every window (dialogs too) gets a dark title bar in the Dark theme.
+        EventManager.RegisterClassHandler(typeof(Window), FrameworkElement.LoadedEvent,
+            new RoutedEventHandler((sender, _) => { if (sender is Window w) Theme.ApplyTitleBar(w); }));
+
         // "Open with" / drag a PDF onto the exe passes its path as the first argument.
         string? fileToOpen = e.Args.FirstOrDefault(a => a.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase));
         var window = new MainWindow(fileToOpen);
