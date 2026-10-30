@@ -89,14 +89,12 @@ public partial class MainWindow : Window
 
         // Voices
         var voices = _narrator.Voices;
-        VoiceBox.ItemsSource = voices;
-        VoiceBox.DisplayMemberPath = nameof(VoiceOption.Display);
+        VoiceBox.ItemsSource = GroupedVoices(voices);
         var voice = voices.FirstOrDefault(v => v.Key == _settings.VoiceKey)
                     ?? voices.FirstOrDefault(v => v.Key == _narrator.DefaultVoiceKey)
                     ?? voices.FirstOrDefault();
         VoiceBox.SelectedItem = voice;
         _narrator.Voice = voice;
-        VoiceBox.DropDownClosed += (_, _) => Keyboard.ClearFocus();
 
         // Speed (debounced so dragging the slider doesn't restart speech on every step)
         _speedDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(350) };
@@ -111,10 +109,11 @@ public partial class MainWindow : Window
 
         SpeedSlider.Value = _settings.Rate;
         _narrator.Rate = _settings.Rate;
-        SpeedLabel.Text = $"{_settings.Rate:0.0}×";
+        SpeedLabel.Text = SpeedText(_settings.Rate);
 
         FollowCheck.IsChecked = _settings.FollowReading;
         ReaderList.FontSize = _settings.FontSize;
+        FontSizeSlider.Value = _settings.FontSize;
 
         // Reading options
         SkipHeadersCheck.IsChecked = _settings.Reading.SkipHeadersFooters;
@@ -158,7 +157,7 @@ public partial class MainWindow : Window
         _ready = true;
         UpdateViewButtons();
         UpdateUi();
-        if (_settings.SidebarOpen) ShowSidebar("contents");
+        if (_settings.SidebarOpen) ShowSidebar(_settings.SidebarTab);
 
         if (voices.Count == 0)
             ShowMessage("No Windows voices were found. Add one in Settings › Time & language › Speech.");
@@ -481,7 +480,7 @@ public partial class MainWindow : Window
     private void UpdateZoomLabel()
     {
         bool pages = (_book is not null && PageMode) || _pagesOnly;
-        ZoomLabel.Text = pages ? $"{PagesViewControl.Zoom / PointsToDip * 100:0}%" : "";
+        ZoomLabel.Text = pages ? $"{PagesViewControl.Zoom / PointsToDip * 100:0}%" : "—";
     }
 
     // ===== Reading options =======================================================================
@@ -765,6 +764,7 @@ public partial class MainWindow : Window
         double size = Math.Clamp(ReaderList.FontSize + delta, 12, 36);
         ReaderList.FontSize = size;
         _settings.FontSize = size;
+        if (Math.Abs(FontSizeSlider.Value - size) > 0.01) FontSizeSlider.Value = size;
         Dispatcher.InvokeAsync(() => FollowReading(force: !_followSuspended), DispatcherPriority.Loaded);
     }
 
@@ -787,7 +787,8 @@ public partial class MainWindow : Window
 
     private void OnSpeedChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
-        if (SpeedLabel is not null) SpeedLabel.Text = $"{e.NewValue:0.0}×";
+        if (SpeedLabel is not null) SpeedLabel.Text = SpeedText(e.NewValue);
+        UpdateVoiceChip();
         if (!_ready) return;
         _speedDebounce.Stop();
         _speedDebounce.Start();
@@ -814,7 +815,7 @@ public partial class MainWindow : Window
         var voices = _narrator.Voices;
         bool wasReady = _ready;
         _ready = false; // don't treat the re-fill as the user picking a voice
-        VoiceBox.ItemsSource = voices;
+        VoiceBox.ItemsSource = GroupedVoices(voices);
         _ready = wasReady;
         var pick = voices.FirstOrDefault(v => v.Key == key)
                    ?? voices.FirstOrDefault(v => v.Key == _settings.VoiceKey)
@@ -841,7 +842,6 @@ public partial class MainWindow : Window
 
     private void OnWordListClick(object sender, RoutedEventArgs e)
     {
-        OptionsButton.IsChecked = false;
         var window = new WordListWindow(_settings.WordList) { Owner = this };
         if (window.ShowDialog() != true || window.Result is null) return;
         _settings.WordList = window.Result;
@@ -871,7 +871,6 @@ public partial class MainWindow : Window
         if (ctrl && e.Key == Key.G) { PageBox.Focus(); PageBox.SelectAll(); e.Handled = true; return; }
         if (e.Key == Key.F3) { NextSearchHit(Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ? -1 : +1); e.Handled = true; return; }
         if (Keyboard.FocusedElement is ComboBox or ComboBoxItem or TextBox) return;
-        if (OptionsPopup.IsOpen) return;
 
         var scroller = ActiveScroller();
         switch (e.Key)
@@ -975,8 +974,18 @@ public partial class MainWindow : Window
 
         var recent = _library.Recent.Where(Match)
             .Select(e => new LibraryCard(e, string.Equals(e.Path, current, StringComparison.OrdinalIgnoreCase))).ToList();
+
+        // The most recent book gets the big "Continue reading" card (unless you're searching).
+        LibraryCard? continueCard = filter.Length == 0 ? recent.FirstOrDefault(c => !c.IsMissing) : null;
+        if (continueCard is not null) recent.Remove(continueCard);
+        ContinueCard.DataContext = continueCard;
+        ContinueCard.Visibility = continueCard is null ? Visibility.Collapsed : Visibility.Visible;
+        if (continueCard is not null)
+            ContinueListenText.Text = continueCard.Entry.WasOpened && continueCard.Entry.Page > 1 ? $"Listen from page {continueCard.Entry.Page}" : "Start listening";
+
         RecentList.ItemsSource = recent;
         RecentHeader.Visibility = recent.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        RecentHeader.Text = continueCard is null ? "Continue reading" : "Recently opened";
 
         bool hasFolder = _settings.LibraryFolder is not null;
         const int maxShown = 400;
@@ -992,6 +1001,21 @@ public partial class MainWindow : Window
             : $"{all.Count} book{(all.Count == 1 ? "" : "s")}";
 
         LibraryHero.Visibility = _library.Recent.Count == 0 && !hasFolder ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private async void OnContinueOpenClick(object sender, RoutedEventArgs e)
+    {
+        if (ContinueCard.DataContext is LibraryCard card) await OpenCardAsync(card);
+    }
+
+    /// <summary>Opens the book you were reading and starts reading aloud where you left off.</summary>
+    private async void OnContinueListenClick(object sender, RoutedEventArgs e)
+    {
+        if (ContinueCard.DataContext is not LibraryCard card) return;
+        await OpenCardAsync(card);
+        if (_book is not null && string.Equals(_book.FilePath, card.Path, StringComparison.OrdinalIgnoreCase)
+            && _narrator.State != NarrationState.Playing)
+            TogglePlay();
     }
 
     private async void OnBookCardClick(object sender, RoutedEventArgs e)
@@ -1105,6 +1129,7 @@ public partial class MainWindow : Window
 
         BookmarksList.ItemsSource = items;
         BookmarksEmpty.Visibility = items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        BookmarksCount.Text = items.Count switch { 0 => "", 1 => "1 bookmark", _ => $"{items.Count} bookmarks" };
         ExportNotesButton.IsEnabled = items.Count > 0;
 
         var marked = new HashSet<int>(_notes?.Items.Select(b => b.Paragraph) ?? Enumerable.Empty<int>());
@@ -1234,29 +1259,48 @@ public partial class MainWindow : Window
 
     // ===== Sidebar: Contents ======================================================================
 
-    private void OnSidebarButtonClick(object sender, RoutedEventArgs e)
+    private void OnContentsTabClick(object sender, RoutedEventArgs e) => TogglePanel("contents");
+    private void OnSearchTabClick(object sender, RoutedEventArgs e) => TogglePanel("search");
+    private void OnBookmarksTabClick(object sender, RoutedEventArgs e) => TogglePanel("bookmarks");
+    private void OnOptionsTabClick(object sender, RoutedEventArgs e) => TogglePanel("options");
+    private void OnLookTabClick(object sender, RoutedEventArgs e) => TogglePanel("look");
+    private void OnVoiceChipClick(object sender, RoutedEventArgs e) => TogglePanel("voices");
+    private void OnClosePanelClick(object sender, RoutedEventArgs e) => HideSidebar();
+
+    private static readonly string[] PanelNames = { "contents", "search", "bookmarks", "options", "look", "voices" };
+
+    /// <summary>A top-bar button: opens its panel, or closes it if it's already open.</summary>
+    private void TogglePanel(string tab)
     {
-        if (SidebarButton.IsChecked == true) ShowSidebar(_settings.SidebarTab);
-        else HideSidebar();
+        if (Sidebar.Visibility == Visibility.Visible && _settings.SidebarTab == tab) HideSidebar();
+        else ShowSidebar(tab);
     }
 
-    private void OnContentsTabClick(object sender, RoutedEventArgs e) => ShowSidebar("contents");
-    private void OnSearchTabClick(object sender, RoutedEventArgs e) => ShowSidebar("search");
-    private void OnBookmarksTabClick(object sender, RoutedEventArgs e) => ShowSidebar("bookmarks");
-
-    /// <summary>Opens the sidebar on a tab: "contents", "search" or "bookmarks".</summary>
+    /// <summary>Opens the side panel on: contents, search, bookmarks, options, look (appearance) or voices.</summary>
     private void ShowSidebar(string tab)
     {
-        if (tab is not ("contents" or "search" or "bookmarks")) tab = "contents";
+        if (!PanelNames.Contains(tab)) tab = "contents";
         Sidebar.Visibility = Visibility.Visible;
-        SidebarColumn.Width = new GridLength(300);
-        SidebarButton.IsChecked = true;
         ContentsTab.IsChecked = tab == "contents";
         SearchTab.IsChecked = tab == "search";
         BookmarksTab.IsChecked = tab == "bookmarks";
+        OptionsTab.IsChecked = tab == "options";
+        LookTab.IsChecked = tab == "look";
         ContentsPanel.Visibility = tab == "contents" ? Visibility.Visible : Visibility.Collapsed;
         SearchPanel.Visibility = tab == "search" ? Visibility.Visible : Visibility.Collapsed;
         BookmarksPanel.Visibility = tab == "bookmarks" ? Visibility.Visible : Visibility.Collapsed;
+        OptionsPanel.Visibility = tab == "options" ? Visibility.Visible : Visibility.Collapsed;
+        LookPanel.Visibility = tab == "look" ? Visibility.Visible : Visibility.Collapsed;
+        VoicesPanel.Visibility = tab == "voices" ? Visibility.Visible : Visibility.Collapsed;
+        PanelTitle.Text = tab switch
+        {
+            "search" => "Search",
+            "bookmarks" => "Bookmarks",
+            "options" => "Reading options",
+            "look" => "Appearance",
+            "voices" => "Voice and speed",
+            _ => "Contents",
+        };
         _settings.SidebarOpen = true;
         _settings.SidebarTab = tab;
         if (tab == "search")
@@ -1268,14 +1312,14 @@ public partial class MainWindow : Window
         {
             Keyboard.ClearFocus();
             if (tab == "contents") SyncContents(scroll: true);
+            if (tab == "voices" && VoiceBox.SelectedItem is { } v) VoiceBox.ScrollIntoView(v);
         }
     }
 
     private void HideSidebar()
     {
         Sidebar.Visibility = Visibility.Collapsed;
-        SidebarColumn.Width = new GridLength(0);
-        SidebarButton.IsChecked = false;
+        ContentsTab.IsChecked = SearchTab.IsChecked = BookmarksTab.IsChecked = OptionsTab.IsChecked = LookTab.IsChecked = false;
         _settings.SidebarOpen = false;
         Keyboard.ClearFocus();
     }
@@ -1568,38 +1612,92 @@ public partial class MainWindow : Window
         StopButton.IsEnabled = hasBook && state != NarrationState.Idle;
         PrevButton.IsEnabled = canSpeak;
         NextButton.IsEnabled = canSpeak;
-        FromCursorButton.IsEnabled = canSpeak && _cursor is not null;
+        FromCursorButton.Visibility = canSpeak && _cursor is not null ? Visibility.Visible : Visibility.Collapsed;
         BackToReadingButton.Visibility = hasBook && _followSuspended && FollowCheck.IsChecked == true
             ? Visibility.Visible : Visibility.Collapsed;
 
+        UpdateVoiceChip();
         UpdateStatus();
         UpdateMedia();
     }
 
+    /// <summary>The note floating above the player ("Picked up where you left off…"), and the reading progress bar.</summary>
     private void UpdateStatus()
     {
         if (!_ready) return;
-        if (_pagesOnly)
-        {
-            StatusText.Text = _message ?? $"Preparing text for reading aloud… {_textProgress * 100:0}%  (you can look through the pages meanwhile)";
-            return;
-        }
-        if (_book is null || _book.IsEmpty)
-        {
-            StatusText.Text = _message ?? "";
-            return;
-        }
+        string? text = _pagesOnly
+            ? _message ?? $"Preparing text for reading aloud… {_textProgress * 100:0}%  You can look through the pages meanwhile."
+            : _message;
+        StatusText.Text = text ?? "";
+        StatusToast.Visibility = string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
 
-        var pos = _narrator.Position;
-        var para = _book.Paragraphs[Math.Clamp(pos.ParagraphIndex, 0, _book.Paragraphs.Count - 1)];
-        string where = $"Page {para.PageNumber} of {_book.PageCount}";
-        string state = _narrator.State switch
+        if (_book is { IsEmpty: false } book)
         {
-            NarrationState.Playing => "Reading",
-            NarrationState.Paused => "Paused",
-            _ => "Ready",
-        };
-        StatusText.Text = _message is null ? $"{state} · {where}" : $"{_message}   ·   {where}";
+            int i = Math.Clamp(_narrator.Position.ParagraphIndex, 0, book.Paragraphs.Count - 1);
+            ReadProgress.Value = book.Paragraphs.Count <= 1 ? 0 : (double)i / (book.Paragraphs.Count - 1);
+        }
+        else ReadProgress.Value = 0;
+    }
+
+    private static string SpeedText(double rate) => $"{rate:0.0#}×";
+
+    /// <summary>"Lessac · 1.0×" on the player's voice button.</summary>
+    private void UpdateVoiceChip()
+    {
+        if (VoiceChipText is null) return;
+        string name = _narrator?.Voice?.Name ?? "Choose a voice";
+        VoiceChipText.Text = $"{name} · {SpeedText(SpeedSlider.Value)}";
+
+        // Light up the quick speed that matches.
+        foreach (var child in QuickSpeeds.Children)
+        {
+            if (child is not Button b || b.Tag is not string tag ||
+                !double.TryParse(tag, System.Globalization.NumberStyles.Float, CultureInfo.InvariantCulture, out double r)) continue;
+            bool on = Math.Abs(r - SpeedSlider.Value) < 0.001;
+            if (on)
+            {
+                b.SetResourceReference(BorderBrushProperty, "AccentBrush");
+                b.SetResourceReference(BackgroundProperty, "SelectedBrush");
+                b.SetResourceReference(ForegroundProperty, "SelectedTextBrush");
+            }
+            else
+            {
+                b.ClearValue(BorderBrushProperty);
+                b.ClearValue(BackgroundProperty);
+                b.ClearValue(ForegroundProperty);
+            }
+        }
+    }
+
+    private static System.Windows.Data.ListCollectionView GroupedVoices(IReadOnlyList<VoiceOption> voices)
+    {
+        var view = new System.Windows.Data.ListCollectionView(voices.ToList());
+        view.GroupDescriptions.Add(new System.Windows.Data.PropertyGroupDescription(nameof(VoiceOption.Group)));
+        return view;
+    }
+
+    private void OnQuickSpeedClick(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is string tag &&
+            double.TryParse(tag, System.Globalization.NumberStyles.Float, CultureInfo.InvariantCulture, out double rate))
+            SpeedSlider.Value = rate;
+    }
+
+    private void OnZoomInClick(object sender, RoutedEventArgs e) => Zoom(+1);
+    private void OnZoomOutClick(object sender, RoutedEventArgs e) => Zoom(-1);
+
+    private void OnFitWidthClick(object sender, RoutedEventArgs e)
+    {
+        if (!(PageMode || _pagesOnly)) return;
+        PagesViewControl.FitWidth();
+        _settings.PageZoom = null;
+        UpdateZoomLabel();
+    }
+
+    private void OnFontSizeSliderChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (!_ready || Math.Abs(ReaderList.FontSize - e.NewValue) < 0.01) return;
+        ChangeFontSize((int)Math.Round(e.NewValue - ReaderList.FontSize));
     }
 
     private void SaveProgress()
@@ -1727,6 +1825,14 @@ public partial class MainWindow : Window
             _thumbPlay.IsEnabled = canSpeak;
             _thumbPrev!.IsEnabled = canSpeak;
             _thumbNext!.IsEnabled = canSpeak;
+        }
+
+        // Under the title in the top bar: the chapter being read.
+        if (_book is { IsEmpty: false } open)
+        {
+            int para = Math.Clamp(_narrator.Position.ParagraphIndex, 0, open.Paragraphs.Count - 1);
+            int ch = OutlineBuilder.EntryFor(open.Outline, para);
+            BookInfo.Text = ch >= 0 && ch < open.Outline.Count ? open.Outline[ch].Title : $"{open.PageCount} pages";
         }
 
         if (_media is null) return;

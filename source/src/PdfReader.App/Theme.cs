@@ -18,30 +18,30 @@ public static class Theme
     {
         [Light] = new()
         {
-            ["AccentBrush"] = "#2B5BD7", ["AccentHoverBrush"] = "#2249B0",
-            ["PaperBrush"] = "#FBF8F1", ["ChromeBrush"] = "#FFFFFF", ["ChromeBorderBrush"] = "#E7E1D4",
-            ["InkBrush"] = "#2A2824", ["MutedInkBrush"] = "#5F5A50", ["HoverBrush"] = "#F1ECE1",
-            ["ActiveParagraphBrush"] = "#F1E7CF", ["ReadingWordBrush"] = "#FFCC33", ["ReadingWordTextBrush"] = "#1E1C18",
-            ["ReadingSentenceBrush"] = "#FFDA6B", ["CursorWordBrush"] = "#DCE5FB", ["SelectedBrush"] = "#E4EAFB",
-            ["PageBackdropBrush"] = "#ECE8DF", ["OverlayBrush"] = "#B3FBF8F1",
+            ["AccentBrush"] = "#1F6F6B", ["AccentHoverBrush"] = "#165451",
+            ["PaperBrush"] = "#F7F5F1", ["ChromeBrush"] = "#FBFAF8", ["ChromeBorderBrush"] = "#E3DFD7",
+            ["InkBrush"] = "#1D1C1A", ["MutedInkBrush"] = "#66625A", ["HoverBrush"] = "#EEEBE5",
+            ["ActiveParagraphBrush"] = "#EFE8D6", ["ReadingWordBrush"] = "#FFCC33", ["ReadingWordTextBrush"] = "#1E1C18",
+            ["ReadingSentenceBrush"] = "#FFDA6B", ["CursorWordBrush"] = "#CFE6E3", ["SelectedBrush"] = "#DCEDEB",
+            ["SelectedTextBrush"] = "#1F6F6B", ["PageBackdropBrush"] = "#EFEDE8", ["OverlayBrush"] = "#B3F7F5F1",
         },
         [Sepia] = new()
         {
-            ["AccentBrush"] = "#9C5A2B", ["AccentHoverBrush"] = "#7F4720",
-            ["PaperBrush"] = "#F4ECD8", ["ChromeBrush"] = "#FAF4E5", ["ChromeBorderBrush"] = "#E0D2B4",
-            ["InkBrush"] = "#3E3020", ["MutedInkBrush"] = "#76654F", ["HoverBrush"] = "#ECE0C6",
+            ["AccentBrush"] = "#8B5A2B", ["AccentHoverBrush"] = "#6F4721",
+            ["PaperBrush"] = "#F4ECD8", ["ChromeBrush"] = "#F9F2E3", ["ChromeBorderBrush"] = "#E2D5B9",
+            ["InkBrush"] = "#3E3020", ["MutedInkBrush"] = "#74634D", ["HoverBrush"] = "#EDE2C9",
             ["ActiveParagraphBrush"] = "#EAD9B2", ["ReadingWordBrush"] = "#F5BE3A", ["ReadingWordTextBrush"] = "#2A2014",
-            ["ReadingSentenceBrush"] = "#F7D27A", ["CursorWordBrush"] = "#DCD6EC", ["SelectedBrush"] = "#EBDCC0",
-            ["PageBackdropBrush"] = "#E3D7BD", ["OverlayBrush"] = "#B3F4ECD8",
+            ["ReadingSentenceBrush"] = "#F7D27A", ["CursorWordBrush"] = "#E4D3AE", ["SelectedBrush"] = "#EBDDBF",
+            ["SelectedTextBrush"] = "#6F4721", ["PageBackdropBrush"] = "#E8DDC4", ["OverlayBrush"] = "#B3F4ECD8",
         },
         [Dark] = new()
         {
-            ["AccentBrush"] = "#4C7BE6", ["AccentHoverBrush"] = "#6690F0",
-            ["PaperBrush"] = "#1C1C1F", ["ChromeBrush"] = "#26262A", ["ChromeBorderBrush"] = "#3A3A40",
-            ["InkBrush"] = "#E4E1DA", ["MutedInkBrush"] = "#A29D93", ["HoverBrush"] = "#323238",
-            ["ActiveParagraphBrush"] = "#2D2B25", ["ReadingWordBrush"] = "#FFCC33", ["ReadingWordTextBrush"] = "#1E1C18",
-            ["ReadingSentenceBrush"] = "#E3C062", ["CursorWordBrush"] = "#34466E", ["SelectedBrush"] = "#2F3B58",
-            ["PageBackdropBrush"] = "#131315", ["OverlayBrush"] = "#B31C1C1F",
+            ["AccentBrush"] = "#2E8C86", ["AccentHoverBrush"] = "#36A39C",
+            ["PaperBrush"] = "#161616", ["ChromeBrush"] = "#1B1B1B", ["ChromeBorderBrush"] = "#2E2E2E",
+            ["InkBrush"] = "#ECE9E3", ["MutedInkBrush"] = "#A39E95", ["HoverBrush"] = "#262626",
+            ["ActiveParagraphBrush"] = "#24221D", ["ReadingWordBrush"] = "#FFCC33", ["ReadingWordTextBrush"] = "#1E1C18",
+            ["ReadingSentenceBrush"] = "#E3C062", ["CursorWordBrush"] = "#1F4140", ["SelectedBrush"] = "#1C3634",
+            ["SelectedTextBrush"] = "#6CC9C1", ["PageBackdropBrush"] = "#121212", ["OverlayBrush"] = "#B3161616",
         },
     };
 

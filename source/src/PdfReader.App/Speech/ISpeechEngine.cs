@@ -16,6 +16,12 @@ public sealed record VoiceOption(string Key, string Name, string Language, Voice
 
     /// <summary>Natural (Piper) voices highlight a whole sentence; Windows voices highlight each word.</summary>
     public bool HighlightsSentences => Kind == VoiceEngineKind.Piper;
+
+    /// <summary>Heading the voice is listed under in the Voice and speed panel.</summary>
+    public string Group => Kind == VoiceEngineKind.Piper ? "NATURAL VOICES · HIGHLIGHT WHOLE SENTENCES" : "WINDOWS VOICES · HIGHLIGHT EACH WORD";
+
+    /// <summary>Second part of the voice's line in the panel ("English (US)", plus "classic" for old Windows voices).</summary>
+    public string Detail => Kind == VoiceEngineKind.Sapi ? $"{Language} · classic" : Language;
     public override string ToString() => Display;
 }
 

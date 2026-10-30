@@ -116,7 +116,7 @@ public sealed class PagesView : Grid
     public PagesView()
     {
         Background = Brushes.Transparent;
-        _panel = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(24, Pad, 24, Pad) };
+        _panel = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(24, Pad, 24, 120) /* room for the floating player */ };
         _scroller = new ScrollViewer
         {
             Content = _panel,
